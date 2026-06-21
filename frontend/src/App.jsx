@@ -132,6 +132,17 @@ export default function App() {
 
   const subirPlano = async (file) => {
     if (!file) return
+    if (/\.dxf$/i.test(file.name)) {
+      try {
+        const txt = await file.text()
+        const { importarDXF } = await import('./lib/dxf') // se carga solo al usar DXF
+        const res = importarDXF(txt)
+        snapshot()
+        setProj((p) => ({ ...p, bg: { url: '', w: res.w, h: res.h }, walls: res.walls, pxPerMeter: res.pxPerMeter || p.pxPerMeter }))
+        fitView({ w: res.w, h: res.h })
+      } catch (e) { console.error(e); alert(e.message || 'No se pudo leer el DXF') }
+      return
+    }
     if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
       try {
         const buf = await file.arrayBuffer()
@@ -318,7 +329,7 @@ export default function App() {
       <header className="bar">
         <span className="logo">🎥 CCTVPLAN</span>
         <input className="proj-name" value={proj.nombre} onChange={(e) => set({ nombre: e.target.value })} />
-        <label className="btn"><input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
+        <label className="btn"><input type="file" accept="image/*,application/pdf,.dxf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
         <button className={'btn ' + (mode === 'wall' ? 'on' : '')} onClick={() => { setMode(mode === 'wall' ? 'select' : 'wall'); setLineStart(null) }}>🧱 Muro</button>
         <button className={'btn ' + (mode === 'rect' ? 'on' : '')} onClick={() => { setMode(mode === 'rect' ? 'select' : 'rect'); setLineStart(null) }} title="Dibujar una sala (rectángulo) en 2 clics">▭ Sala</button>
@@ -413,7 +424,7 @@ export default function App() {
         <main className="canvas">
           <svg ref={svgRef} className="svg" onPointerDown={onPointerDown}>
             <g transform={`translate(${view.tx},${view.ty}) scale(${view.zoom})`}>
-              {proj.bg && <image href={proj.bg.url} x={0} y={0} width={proj.bg.w} height={proj.bg.h} />}
+              {proj.bg?.url && <image href={proj.bg.url} x={0} y={0} width={proj.bg.w} height={proj.bg.h} />}
               {!proj.bg && <text x={20} y={40} fill="#5b6b86" fontSize={18}>Sube un plano para empezar →</text>}
 
               {proj.cameras.map((cam, i) => (
