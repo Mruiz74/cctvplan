@@ -771,6 +771,32 @@ export function buildBom(proj) {
   return { nombre: proj.nombre, rows, cableRow, neto, iva, total: neto + iva }
 }
 
+// Tipo normalizado para el ícono referencial de la cámara.
+function tipoCam(t) {
+  t = (t || '').toLowerCase()
+  if (t.includes('ptz')) return 'ptz'
+  if (t.includes('multi')) return 'multi'
+  if (t.includes('fish') || t.includes('ojo')) return 'fisheye'
+  if (t.includes('turret')) return 'turret'
+  if (t.includes('bullet')) return 'bullet'
+  if (t.includes('dome') || t.includes('domo')) return 'dome'
+  return 'cam'
+}
+
+// Silueta del tipo de cámara, apuntando a +x (se rota con la orientación).
+function glifoCam(tipo, f) {
+  const d = '#0b1220', s = { stroke: '#fff', strokeWidth: 1.5, vectorEffect: 'non-scaling-stroke' }
+  switch (tipo) {
+    case 'bullet': return <g><rect x={-8} y={-4} width={13} height={8} rx={4} fill={f} {...s} /><circle cx={5} cy={0} r={3.1} fill={d} stroke="#fff" strokeWidth={1} vectorEffect="non-scaling-stroke" /></g>
+    case 'dome': return <g><path d="M -8 3 A 8 8 0 0 1 8 3 Z" fill={f} {...s} /><circle cx={0} cy={1} r={2.4} fill={d} /></g>
+    case 'turret': return <g><circle r={8} fill={f} {...s} /><circle cx={2.6} cy={0} r={3.4} fill={d} stroke="#fff" strokeWidth={1} vectorEffect="non-scaling-stroke" /></g>
+    case 'ptz': return <g><circle r={8} fill={f} {...s} /><rect x={-8} y={-9.5} width={16} height={4} rx={2} fill={f} {...s} /><circle cx={3} cy={0} r={2.6} fill={d} /></g>
+    case 'multi': return <g><circle r={8} fill={f} {...s} />{[[0, -3.6], [3.6, 0], [0, 3.6], [-3.6, 0]].map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={1.6} fill={d} />)}</g>
+    case 'fisheye': return <g><circle r={8} fill={f} {...s} /><circle r={4} fill="none" stroke={d} strokeWidth={1.5} /><circle r={1.4} fill={d} /></g>
+    default: return <circle r={7} fill={f} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+  }
+}
+
 // ─── Vista de cámara con oclusión ───────────────────────────────────────────
 function CamView({ cam, idx, cat, ppm, walls, sel, onDown, onRot }) {
   if (!cat) return null
@@ -793,8 +819,8 @@ function CamView({ cam, idx, cat, ppm, walls, sel, onDown, onRot }) {
         <line x1={cam.x} y1={cam.y} x2={hx} y2={hy} stroke="#0ea5e9" strokeWidth={2} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
         <circle cx={hx} cy={hy} r={8} fill="#0ea5e9" stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ cursor: 'grab' }} onPointerDown={(e) => onRot(e, cam)} />
       </>}
-      <circle cx={cam.x} cy={cam.y} r={7} fill={sel ? '#0ea5e9' : '#111827'} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" />
-      <text x={cam.x + 10} y={cam.y - 8} fill="#e6edf7" fontSize={13} stroke="#0b1220" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>C{idx}</text>
+      <g transform={`translate(${cam.x},${cam.y}) rotate(${cam.rot})`}>{glifoCam(tipoCam(cat.tipo), sel ? '#0ea5e9' : '#111827')}</g>
+      <text x={cam.x + 11} y={cam.y - 9} fill="#e6edf7" fontSize={13} stroke="#0b1220" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>C{idx}</text>
     </g>
   )
 }
