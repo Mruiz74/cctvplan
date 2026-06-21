@@ -406,7 +406,7 @@ export default function App() {
               ))}
 
               {proj.cables.map((c, i) => <line key={'k' + i} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="#22d3ee" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />)}
-              {proj.walls.map((w, i) => <line key={'w' + i} x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} stroke="#e2e8f0" strokeWidth={3} vectorEffect="non-scaling-stroke" />)}
+              {proj.walls.map((w, i) => <line key={'w' + i} x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} stroke="#2563eb" strokeWidth={4} strokeLinecap="round" vectorEffect="non-scaling-stroke" />)}
 
               {proj.devices.map((d, i) => {
                 const dd = devById(d.devId)
