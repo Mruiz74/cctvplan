@@ -38,7 +38,10 @@ export default function App() {
   const svgRef = useRef(null)
   const drag = useRef(null)
 
-  useEffect(() => { localStorage.setItem(STORE, JSON.stringify(proj)) }, [proj])
+  useEffect(() => {
+    try { localStorage.setItem(STORE, JSON.stringify(proj)) }
+    catch { /* plano muy grande para guardar local: el proyecto sigue en memoria */ }
+  }, [proj])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -82,8 +85,17 @@ export default function App() {
     setView({ zoom: z, tx: (r.width - bg.w * z) / 2, ty: (r.height - bg.h * z) / 2 })
   }
 
-  const subirPlano = (file) => {
+  const subirPlano = async (file) => {
     if (!file) return
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      try {
+        const buf = await file.arrayBuffer()
+        const { pdfABackground } = await import('./lib/pdf') // se carga solo al usar PDF
+        const bg = await pdfABackground(buf)
+        set({ bg }); fitView(bg)
+      } catch (e) { console.error(e); alert('No se pudo leer el PDF. Prueba con otra página o una imagen.') }
+      return
+    }
     const reader = new FileReader()
     reader.onload = () => {
       const img = new Image()
@@ -165,7 +177,7 @@ export default function App() {
       <header className="bar">
         <span className="logo">🎥 CCTVPLAN</span>
         <input className="proj-name" value={proj.nombre} onChange={(e) => set({ nombre: e.target.value })} />
-        <label className="btn"><input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
+        <label className="btn"><input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
         <button className={'btn ' + (mode === 'wall' ? 'on' : '')} onClick={() => { setMode(mode === 'wall' ? 'select' : 'wall'); setLineStart(null) }}>🧱 Muro</button>
         <button className={'btn ' + (mode === 'cable' ? 'on' : '')} onClick={() => { setMode(mode === 'cable' ? 'select' : 'cable'); setLineStart(null) }}>🔗 Cable</button>
