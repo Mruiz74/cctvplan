@@ -35,6 +35,8 @@ export default function App() {
   const [scalePts, setScalePts] = useState([])
   const [lineStart, setLineStart] = useState(null) // muro o cable en curso
   const [marca, setMarca] = useState(MARCAS[0])
+  const [autoPts, setAutoPts] = useState([])
+  const [autoNivel, setAutoNivel] = useState('reconocer')
   const svgRef = useRef(null)
   const drag = useRef(null)
 
@@ -133,6 +135,7 @@ export default function App() {
       else { set({ [arr]: [...proj[arr], { x1: lineStart.x, y1: lineStart.y, x2: w.x, y2: w.y }] }); setLineStart(w) }
       return
     }
+    if (mode === 'auto') { setAutoPts((a) => [...a, w]); return }
     setSel(null)
     drag.current = { type: 'pan', sx: e.clientX, sy: e.clientY, tx: view.tx, ty: view.ty }
     window.addEventListener('pointermove', onMove)
@@ -166,6 +169,33 @@ export default function App() {
   }
   const deshacerLinea = (arr) => setProj((p) => ({ ...p, [arr]: p[arr].slice(0, -1) }))
 
+  // Auto-diseño v1 (geométrico): coloca cámaras a lo largo de la línea dibujada,
+  // espaciadas según el alcance del nivel DORI objetivo, mirando perpendicular.
+  const generarAuto = () => {
+    if (!proj.pxPerMeter) { alert('Primero calibra la escala (📏).'); return }
+    if (autoPts.length < 2 || !catSel) { alert('Elige un modelo de cámara (arriba) y dibuja la línea a cubrir.'); return }
+    const cov = coberturaCamara(catById(catSel), 0)
+    const rangeM = cov.dori[autoNivel] || cov.dori.reconocer
+    const spacing = Math.max(rangeM * proj.pxPerMeter, 20)
+    const nuevas = []
+    let acc = 0, nextAt = spacing / 2
+    for (let i = 0; i < autoPts.length - 1; i++) {
+      const a = autoPts[i], b = autoPts[i + 1]
+      const segLen = dist(a.x, a.y, b.x, b.y)
+      if (segLen < 1) continue
+      const dx = (b.x - a.x) / segLen, dy = (b.y - a.y) / segLen
+      const headDeg = (Math.atan2(-dx, dy) * 180) / Math.PI
+      while (nextAt <= acc + segLen) {
+        const t = nextAt - acc
+        nuevas.push({ id: 'c' + Date.now() + Math.floor(Math.random() * 1e4), catId: catSel, lenteIdx: 0, x: a.x + dx * t, y: a.y + dy * t, rot: Math.round((headDeg + 360) % 360) })
+        nextAt += spacing
+      }
+      acc += segLen
+    }
+    if (nuevas.length) set({ cameras: [...proj.cameras, ...nuevas] })
+    setAutoPts([]); setMode('select')
+  }
+
   const camSel = sel?.kind === 'cam' ? proj.cameras.find((c) => c.id === sel.id) : null
   const devSelObj = sel?.kind === 'dev' ? proj.devices.find((d) => d.id === sel.id) : null
   const ppm = proj.pxPerMeter || 40
@@ -184,6 +214,7 @@ export default function App() {
         {mode === 'wall' && <button className="btn" onClick={() => deshacerLinea('walls')}>↶</button>}
         {mode === 'cable' && <button className="btn" onClick={() => deshacerLinea('cables')}>↶</button>}
         <button className={'btn ' + (mode === 'select' ? 'on' : '')} onClick={() => setMode('select')}>🖐️</button>
+        <button className={'btn ' + (mode === 'auto' ? 'on' : '')} onClick={() => { setMode('auto'); setAutoPts([]); setCatTab('camaras') }}>🤖 Auto</button>
         <button className="btn" onClick={() => fitView()}>🔍</button>
         <div className="spacer" />
         <span className="escala">{proj.pxPerMeter ? `${proj.pxPerMeter.toFixed(1)} px/m ✓` : '⚠️ sin escala'}</span>
@@ -202,7 +233,7 @@ export default function App() {
             <select className="in" value={marca} onChange={(e) => setMarca(e.target.value)}>{MARCAS.map((m) => <option key={m}>{m}</option>)}</select>
             <div className="cat">
               {CAMS.filter((c) => c.marca === marca).map((c) => (
-                <button key={c.id} className={'cat-item ' + (catSel === c.id && mode === 'camera' ? 'on' : '')} onClick={() => { setCatSel(c.id); setMode('camera') }}>
+                <button key={c.id} className={'cat-item ' + (catSel === c.id && (mode === 'camera' || mode === 'auto') ? 'on' : '')} onClick={() => { setCatSel(c.id); if (mode !== 'auto') setMode('camera') }}>
                   <b>{c.modelo}</b><span>{c.mp ? c.mp + 'MP · ' : ''}{c.tipo}</span>
                 </button>
               ))}
@@ -216,6 +247,23 @@ export default function App() {
             ))}
           </div>}
           {(mode === 'camera' || mode === 'device') && <div className="hint">Toca el plano para colocar 📍</div>}
+
+          {mode === 'auto' && (
+            <div className="props">
+              <h3 className="sec">🤖 Auto-diseño</h3>
+              <div className="muted">1) Elige el modelo (lista de arriba). 2) Marca con clics la línea/perímetro a cubrir. 3) Generar.</div>
+              <div className="muted">Modelo: <b>{catSel ? catById(catSel)?.modelo : '— elige uno —'}</b></div>
+              <label className="lbl">Nivel objetivo</label>
+              <select className="in" value={autoNivel} onChange={(e) => setAutoNivel(e.target.value)}>
+                <option value="identificar">Identificar (máxima calidad, más cámaras)</option>
+                <option value="reconocer">Reconocer</option>
+                <option value="observar">Observar</option>
+                <option value="detectar">Detectar (máximo alcance, menos cámaras)</option>
+              </select>
+              <button className="btn on" style={{ width: '100%' }} onClick={generarAuto}>✨ Generar cámaras</button>
+              <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => { setAutoPts([]); setMode('select') }}>Cancelar</button>
+            </div>
+          )}
 
           {camSel && <CamProps cam={camSel} cat={catById(camSel.catId)} onUpd={updCam} onDel={delSel} />}
           {devSelObj && <div className="props"><h3 className="sec">{devById(devSelObj.devId)?.icono} {devById(devSelObj.devId)?.modelo}</h3><button className="btn danger" onClick={delSel}>🗑️ Eliminar</button></div>}
@@ -246,6 +294,8 @@ export default function App() {
                 )
               })}
 
+              {autoPts.length > 0 && <polyline points={autoPts.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#a855f7" strokeWidth={2} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />}
+              {autoPts.map((p, i) => <circle key={'a' + i} cx={p.x} cy={p.y} r={3} fill="#a855f7" vectorEffect="non-scaling-stroke" />)}
               {lineStart && <circle cx={lineStart.x} cy={lineStart.y} r={4} fill={mode === 'cable' ? '#22d3ee' : '#0ea5e9'} vectorEffect="non-scaling-stroke" />}
               {scalePts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={4} fill="#22c55e" vectorEffect="non-scaling-stroke" />)}
             </g>
