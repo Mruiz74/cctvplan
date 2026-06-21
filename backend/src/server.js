@@ -5,6 +5,7 @@ const cors = require('cors');
 const { PORT, FRONTEND_URL } = require('./config');
 const { autoDiseno, detectarMuros } = require('./diseno');
 const { satelite } = require('./satelite');
+const { extraerDatasheet } = require('./datasheet');
 const { pool, init } = require('./db');
 const { hash, verify, makeToken, requireAuth } = require('./auth');
 
@@ -54,6 +55,19 @@ app.post('/api/satelite', async (req, res) => {
     if (e.code === 'GKEY') { console.error('satelite google:', e.message || e); return res.status(502).json({ error: 'La API de Google Maps rechazó la solicitud (revisa la API key, que tenga Static Maps + Geocoding habilitadas y facturación).' }); }
     console.error('satelite:', e.message || e);
     res.status(500).json({ error: 'No se pudo obtener la imagen satelital. Reintenta.' });
+  }
+});
+
+app.post('/api/datasheet', async (req, res) => {
+  try {
+    const camara = await extraerDatasheet({ imagenDataUrl: (req.body || {}).imagenDataUrl });
+    res.json({ camara });
+  } catch (e) {
+    if (e.code === 'NO_API_KEY') return res.status(503).json({ error: 'La IA no está configurada (falta ANTHROPIC_API_KEY).' });
+    if (e.code === 'NO_IMG') return res.status(400).json({ error: 'Sube el datasheet (PDF o imagen).' });
+    if (e.status === 401) return res.status(401).json({ error: 'API key de Claude inválida.' });
+    console.error('datasheet:', e.status || '', e.message || e);
+    res.status(500).json({ error: 'No se pudo leer el datasheet. Prueba con una imagen más nítida o solo la página de especificaciones.' });
   }
 });
 

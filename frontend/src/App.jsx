@@ -7,7 +7,9 @@ import { abrirPropuesta } from './proposal'
 
 const CAMS = catalogo.camaras
 const DEVS = dispositivos.dispositivos
-const catById = (id) => CAMS.find((c) => c.id === id)
+// Cámaras del usuario (importadas de datasheets), persistidas en localStorage.
+let CUSTOM = (() => { try { return JSON.parse(localStorage.getItem('cctvplan_cams') || '[]') } catch { return [] } })()
+const catById = (id) => CAMS.find((c) => c.id === id) || CUSTOM.find((c) => c.id === id)
 const devById = (id) => DEVS.find((d) => d.id === id)
 const MARCAS = [...new Set(CAMS.map((c) => c.marca))]
 export const clp = (n) => '$' + (Math.round(Number(n) || 0)).toLocaleString('es-CL')
@@ -70,6 +72,9 @@ export default function App() {
   const [murosLoading, setMurosLoading] = useState(false)
   const [dxf, setDxf] = useState(null) // { data, sel:Set } — selector de capas DXF
   const [sat, setSat] = useState(null) // { dir, metros, loading, err } — modal satélite
+  const [customCams, setCustomCams] = useState(CUSTOM)
+  const [dsLoading, setDsLoading] = useState(false)
+  const [dsResult, setDsResult] = useState(null) // cámara leída del datasheet, pendiente de confirmar
   const [auth, setAuth] = useState(() => { try { return JSON.parse(localStorage.getItem('cctvplan_auth') || 'null') } catch { return null } })
   const [cloud, setCloud] = useState(null) // modal proyectos en la nube
   const [cloudId, setCloudId] = useState(null) // id del proyecto abierto en la nube
@@ -83,6 +88,11 @@ export default function App() {
     try { localStorage.setItem(STORE, JSON.stringify(proj)) }
     catch { /* plano muy grande para guardar local: el proyecto sigue en memoria */ }
   }, [proj])
+
+  useEffect(() => {
+    CUSTOM = customCams // para que catById (módulo) encuentre las del usuario
+    try { localStorage.setItem('cctvplan_cams', JSON.stringify(customCams)) } catch { /* */ }
+  }, [customCams])
 
   // Historial (deshacer/rehacer)
   const snapshot = () => { const h = hist.current; h.past.push(JSON.stringify(projRef.current)); if (h.past.length > 40) h.past.shift(); h.future = [] }
@@ -396,6 +406,40 @@ export default function App() {
     if (auth) cargarLista()
   }
 
+  // ---------- Importar cámara desde datasheet (Claude visión) ----------
+  const importarDatasheet = async (file) => {
+    if (!file) return
+    setDsLoading(true)
+    try {
+      let dataUrl
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        const buf = await file.arrayBuffer()
+        const { pdfABackground } = await import('./lib/pdf')
+        const bg = await pdfABackground(buf)
+        dataUrl = bg.url
+      } else {
+        dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file) })
+      }
+      const r = await fetch(API_IA + '/api/datasheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imagenDataUrl: dataUrl }) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error del servidor')
+      setDsResult(data.camara)
+    } catch (e) { alert(e.message || 'No se pudo leer el datasheet') } finally { setDsLoading(false) }
+  }
+
+  const confirmarDatasheet = () => {
+    const c = dsResult
+    const slug = ((c.marca || '') + (c.modelo || '')).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 28)
+    const cam = { ...c, id: 'user-' + slug + '-' + Date.now().toString(36), _user: true }
+    if (!cam.resolucion_w && cam.mp) { cam.resolucion_w = Math.round(Math.sqrt((cam.mp * 1e6 * 16) / 9)); cam.resolucion_h = Math.round((cam.resolucion_w * 9) / 16) }
+    if (!Array.isArray(cam.lentes) || !cam.lentes.length) cam.lentes = [{ focal_mm: 4, hfov_publicado_deg: null }]
+    setCustomCams((a) => [...a, cam])
+    setMarca(cam.marca); setCatSel(cam.id); setCatTab('camaras')
+    setDsResult(null)
+  }
+
+  const borrarCamUser = (id) => { setCustomCams((a) => a.filter((c) => c.id !== id)); if (catSel === id) setCatSel(null) }
+
   // Auto-diseño con IA (Claude). Manda el plano + encargo al backend y coloca lo propuesto.
   const disenarIA = async () => {
     if (!proj.bg) { alert('Sube un plano primero (📐).'); return }
@@ -407,7 +451,7 @@ export default function App() {
           imagenDataUrl: proj.bg.url, brief: iaBrief, pxPerMeter: proj.pxPerMeter,
           planoW: proj.bg.w, planoH: proj.bg.h, marcaPreferida: iaMarca,
           muros: (proj.walls || []).map((w) => ({ x1: w.x1 / proj.bg.w, y1: w.y1 / proj.bg.h, x2: w.x2 / proj.bg.w, y2: w.y2 / proj.bg.h })),
-          catalogo: CAMS.filter((c) => !c._es_serie),
+          catalogo: cams.filter((c) => !c._es_serie),
         }),
       })
       const data = await r.json()
@@ -425,6 +469,8 @@ export default function App() {
   const camSel = sel?.kind === 'cam' ? proj.cameras.find((c) => c.id === sel.id) : null
   const devSelObj = sel?.kind === 'dev' ? proj.devices.find((d) => d.id === sel.id) : null
   const ppm = proj.pxPerMeter || 40
+  const cams = customCams.length ? [...CAMS, ...customCams] : CAMS
+  const marcas = customCams.length ? [...new Set(cams.map((c) => c.marca))] : MARCAS
 
   const cableM = proj.pxPerMeter ? proj.cables.reduce((s, c) => s + dist(c.x1, c.y1, c.x2, c.y2), 0) / proj.pxPerMeter : 0
 
@@ -462,11 +508,16 @@ export default function App() {
           </div>
 
           {catTab === 'camaras' && <>
-            <select className="in" value={marca} onChange={(e) => setMarca(e.target.value)}>{MARCAS.map((m) => <option key={m}>{m}</option>)}</select>
+            <label className="btn" style={{ width: '100%', marginBottom: 8, textAlign: 'center' }}>
+              <input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} disabled={dsLoading} onChange={(e) => { importarDatasheet(e.target.files[0]); e.target.value = '' }} />
+              {dsLoading ? '📄 Leyendo datasheet…' : '📄 Importar desde datasheet'}
+            </label>
+            <select className="in" value={marca} onChange={(e) => setMarca(e.target.value)}>{marcas.map((m) => <option key={m}>{m}</option>)}</select>
             <div className="cat">
-              {CAMS.filter((c) => c.marca === marca).map((c) => (
+              {cams.filter((c) => c.marca === marca).map((c) => (
                 <button key={c.id} className={'cat-item ' + (catSel === c.id && (mode === 'camera' || mode === 'auto') ? 'on' : '')} onClick={() => { setCatSel(c.id); if (mode !== 'auto') setMode('camera') }}>
-                  <b>{c.modelo}</b><span>{c.mp ? c.mp + 'MP · ' : ''}{c.tipo}</span>
+                  <b>{c.modelo} {c._user ? '👤' : ''}</b><span>{c.mp ? c.mp + 'MP · ' : ''}{c.tipo}{c._user ? ' · tuya' : ''}</span>
+                  {c._user && <span className="del-cam" onClick={(ev) => { ev.stopPropagation(); borrarCamUser(c.id) }} title="Quitar del catálogo">🗑</span>}
                 </button>
               ))}
             </div>
@@ -501,7 +552,7 @@ export default function App() {
                 <label className="lbl">Marca del sistema</label>
                 <select className="in" value={iaMarca} onChange={(e) => setIaMarca(e.target.value)}>
                   <option value="auto">Una sola marca (la IA elige la mejor)</option>
-                  {MARCAS.map((m) => <option key={m} value={m}>Solo {m}</option>)}
+                  {marcas.map((m) => <option key={m} value={m}>Solo {m}</option>)}
                   <option value="mezclar">Permitir mezclar marcas</option>
                 </select>
                 <textarea className="in" rows={3} placeholder="Ej: bodega con 2 accesos; prioriza la entrada y la oficina de caja" value={iaBrief} onChange={(e) => setIaBrief(e.target.value)} />
@@ -635,6 +686,25 @@ export default function App() {
                 <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setCloud(null)}>Cerrar</button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {dsResult && (
+        <div className="modal-bg" onClick={() => setDsResult(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="sec">📄 Cámara leída del datasheet</h3>
+            <div className="muted">Revisa los datos y confírmalos. Confianza de lectura: <b>{dsResult.confianza || '—'}</b></div>
+            <div className="dsbox">
+              <div className="ds-tit">{dsResult.marca} {dsResult.modelo}</div>
+              <div className="muted">{dsResult.tipo} · {dsResult.mp}MP · sensor {dsResult.sensor_formato}"{dsResult.resolucion_w ? ` · ${dsResult.resolucion_w}×${dsResult.resolucion_h}` : ''}</div>
+              <div className="muted">Lentes: {(dsResult.lentes || []).map((l) => l.focal_mm + 'mm' + (l.hfov_publicado_deg ? ` (${l.hfov_publicado_deg}°)` : '')).join(', ') || '—'}</div>
+              <div className="muted">{[dsResult.ir_alcance_m ? 'IR ' + dsResult.ir_alcance_m + 'm' : '', dsResult.ip_rating, dsResult.ik_rating, dsResult.poe ? 'PoE' : ''].filter(Boolean).join(' · ')}</div>
+              {!!(dsResult.caracteristicas || []).length && <div className="muted">{dsResult.caracteristicas.join(' · ')}</div>}
+            </div>
+            {dsResult.confianza === 'baja' && <div className="err">Lectura de baja confianza — verifica los datos contra el datasheet antes de usar.</div>}
+            <button className="btn on" style={{ width: '100%', marginTop: 8 }} onClick={confirmarDatasheet}>Agregar al catálogo</button>
+            <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setDsResult(null)}>Descartar</button>
           </div>
         </div>
       )}
