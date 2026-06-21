@@ -46,10 +46,10 @@ app.post('/api/muros', async (req, res) => {
 });
 
 app.post('/api/satelite', async (req, res) => {
-  const { direccion, lat, lng, metros } = req.body || {};
+  const { direccion, lat, lng, metros, tipo } = req.body || {};
   if (!direccion && !(lat && lng)) return res.status(400).json({ error: 'Ingresa una dirección.' });
   try {
-    res.json(await satelite({ direccion, lat, lng, metros }));
+    res.json(await satelite({ direccion, lat, lng, metros, tipo }));
   } catch (e) {
     if (e.code === 'NOT_FOUND') return res.status(404).json({ error: 'No encontré esa dirección. Prueba con más detalle (calle, número, comuna, país).' });
     if (e.code === 'GKEY') { console.error('satelite google:', e.message || e); return res.status(502).json({ error: 'La API de Google Maps rechazó la solicitud (revisa la API key, que tenga Static Maps + Geocoding habilitadas y facturación).' }); }

@@ -330,7 +330,7 @@ export default function App() {
     if (!dir) { setSat((s) => ({ ...s, err: 'Escribe una dirección.' })); return }
     setSat((s) => ({ ...s, loading: true, err: '' }))
     try {
-      const r = await fetch(API_IA + '/api/satelite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dir, metros: sat.metros }) })
+      const r = await fetch(API_IA + '/api/satelite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dir, metros: sat.metros, tipo: sat.tipo }) })
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'No se pudo obtener la imagen')
       snapshot()
@@ -490,7 +490,7 @@ export default function App() {
         <input className="proj-name" value={proj.nombre} onChange={(e) => set({ nombre: e.target.value })} />
         <button className={'btn ' + (auth ? 'on' : '')} onClick={abrirModalNube} title="Guardar / abrir proyectos en la nube">☁️ {cloudId ? 'Guardado' : 'Proyectos'}</button>
         <label className="btn"><input type="file" accept="image/*,application/pdf,.dxf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
-        <button className="btn" onClick={() => setSat({ dir: '', metros: 120, loading: false, err: '' })} title="Traer imagen satelital por dirección (exteriores)">🛰️ Satélite</button>
+        <button className="btn" onClick={() => setSat({ dir: '', metros: 120, tipo: 'satellite', loading: false, err: '' })} title="Traer imagen del sitio por dirección (satélite, híbrido o mapa)">🛰️ Satélite</button>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
         <button className={'btn ' + (mode === 'wall' ? 'on' : '')} onClick={() => { setMode(mode === 'wall' ? 'select' : 'wall'); setLineStart(null) }}>🧱 Muro</button>
         <button className={'btn ' + (mode === 'rect' ? 'on' : '')} onClick={() => { setMode(mode === 'rect' ? 'select' : 'rect'); setLineStart(null) }} title="Dibujar una sala (rectángulo) en 2 clics">▭ Sala</button>
@@ -647,6 +647,12 @@ export default function App() {
             <input className="in" placeholder="Ej: Av. Apoquindo 6410, Las Condes, Chile" value={sat.dir}
               onChange={(e) => setSat((s) => ({ ...s, dir: e.target.value }))}
               onKeyDown={(e) => { if (e.key === 'Enter') buscarSatelite() }} autoFocus />
+            <label className="lbl">Tipo de imagen</label>
+            <div className="tabs">
+              <button className={sat.tipo === 'satellite' ? 'tab on' : 'tab'} onClick={() => setSat((s) => ({ ...s, tipo: 'satellite' }))}>🛰️ Satélite</button>
+              <button className={sat.tipo === 'hybrid' ? 'tab on' : 'tab'} onClick={() => setSat((s) => ({ ...s, tipo: 'hybrid' }))}>🗺️ Híbrido</button>
+              <button className={sat.tipo === 'roadmap' ? 'tab on' : 'tab'} onClick={() => setSat((s) => ({ ...s, tipo: 'roadmap' }))}>🛣️ Mapa</button>
+            </div>
             <label className="lbl">Área a cubrir: {sat.metros} m de lado</label>
             <input className="range" type="range" min={40} max={400} step={10} value={sat.metros}
               onChange={(e) => setSat((s) => ({ ...s, metros: +e.target.value }))} />
