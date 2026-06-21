@@ -47,7 +47,26 @@ const BANDAS = [
 ]
 
 const STORE = 'cctvplan_project'
-const nuevoProyecto = () => ({ nombre: 'Proyecto sin nombre', bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [], precios: {}, precioCableM: 0 })
+const nuevoProyecto = () => ({ nombre: 'Proyecto sin nombre', bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [], precios: {}, precioCableM: 0, extras: [], rec: { fps: 15, codec: 'h265', dias: 14, factor: 1 } })
+
+// Dimensionamiento del sistema: ancho de banda, almacenamiento y equipos sugeridos.
+function calcSistema(proj) {
+  const rec = proj.rec || {}
+  const fps = rec.fps || 15, dias = rec.dias || 14, factor = rec.factor ?? 1
+  const codecF = rec.codec === 'h264' ? 1.8 : 1
+  let mbps = 0
+  for (const c of proj.cameras) {
+    const cat = catById(c.catId); if (!cat) continue
+    const mp = cat.mp || (cat.resolucion_w && cat.resolucion_h ? (cat.resolucion_w * cat.resolucion_h) / 1e6 : 2)
+    mbps += Math.max(0.5, mp * (fps / 15) * codecF)
+  }
+  const nCam = proj.cameras.length
+  const tb = (mbps * 10.8 * factor * dias) / 1000 // Mbps→GB/día (×10.8) ×factor ×días ÷1000
+  const canales = [4, 8, 16, 32, 64, 128].find((n) => n >= nCam) || Math.ceil(nCam / 16) * 16
+  const puertos = [8, 16, 24, 48].find((n) => n >= nCam) || Math.ceil(nCam / 24) * 24
+  const discoTB = Math.max(1, Math.ceil(tb * 1.1)) // +10% margen
+  return { mbps, nCam, tb, discoTB, canales, puertos, fps, dias, factor, codec: rec.codec || 'h265' }
+}
 
 export default function App() {
   const [proj, setProj] = useState(() => {
@@ -603,6 +622,13 @@ export default function App() {
           {camSel && <CamProps cam={camSel} cat={catById(camSel.catId)} onUpd={updCam} onDel={delSel} />}
           {devSelObj && <div className="props"><h3 className="sec">{devById(devSelObj.devId)?.icono} {devById(devSelObj.devId)?.modelo}</h3><button className="btn danger" onClick={delSel}>🗑️ Eliminar</button></div>}
 
+          {proj.cameras.length > 0 && <SistemaPanel proj={proj} onRec={(k, v) => set({ rec: { ...(proj.rec || {}), [k]: v } })} onAplicar={() => { const s = calcSistema(proj); set({ extras: [
+            { key: 'nvr', label: 'NVR / grabador ' + s.canales + ' canales', qty: 1 },
+            { key: 'disco', label: 'Disco vigilancia ' + s.discoTB + ' TB', qty: 1 },
+            { key: 'switch', label: 'Switch PoE ' + s.puertos + ' puertos', qty: 1 },
+            { key: 'ups', label: 'UPS / respaldo', qty: 1 },
+          ] }) }} />}
+
           <BOMPanel proj={proj} cableM={cableM} onPrecio={(k, v) => set({ precios: { ...proj.precios, [k]: v } })} onCable={(v) => set({ precioCableM: v })} />
         </aside>
 
@@ -759,6 +785,9 @@ export function buildBom(proj) {
     grupos[d.devId] = grupos[d.devId] || { key: d.devId, label: dd.modelo, tipo: 'Equipo', qty: 0 }
     grupos[d.devId].qty++
   }
+  for (const e of (proj.extras || [])) {
+    if (e.qty > 0) grupos['x_' + e.key] = { key: 'x_' + e.key, label: e.label, tipo: 'Sistema', qty: e.qty }
+  }
   const cableM = proj.pxPerMeter ? proj.cables.reduce((s, c) => s + Math.hypot(c.x2 - c.x1, c.y2 - c.y1), 0) / proj.pxPerMeter : 0
   const rows = Object.values(grupos).map((g) => {
     const unit = Number(proj.precios?.[g.key]) || 0
@@ -846,6 +875,40 @@ function CamProps({ cam, cat, onUpd, onDel }) {
         <div className="d-row"><span className="d de">Detectar</span><b>{cov.dori.detectar} m</b></div>
       </div>
       <button className="btn danger" onClick={() => onDel()}>🗑️ Eliminar cámara</button>
+    </div>
+  )
+}
+
+function SistemaPanel({ proj, onRec, onAplicar }) {
+  const s = calcSistema(proj)
+  const rec = proj.rec || {}
+  return (
+    <div className="props">
+      <h3 className="sec">📊 Dimensionamiento del sistema</h3>
+      <label className="lbl">FPS (cuadros/seg): {rec.fps || 15}</label>
+      <input className="range" type="range" min={5} max={30} step={1} value={rec.fps || 15} onChange={(e) => onRec('fps', +e.target.value)} />
+      <label className="lbl">Códec</label>
+      <select className="in" value={rec.codec || 'h265'} onChange={(e) => onRec('codec', e.target.value)}>
+        <option value="h265">H.265 / H.265+ (eficiente)</option>
+        <option value="h264">H.264</option>
+      </select>
+      <label className="lbl">Días de retención: {rec.dias || 14}</label>
+      <input className="range" type="range" min={1} max={90} step={1} value={rec.dias || 14} onChange={(e) => onRec('dias', +e.target.value)} />
+      <label className="lbl">Modo de grabación</label>
+      <select className="in" value={rec.factor ?? 1} onChange={(e) => onRec('factor', +e.target.value)}>
+        <option value={1}>Continua 24/7</option>
+        <option value={0.5}>Por movimiento (≈50%)</option>
+        <option value={0.3}>Solo eventos (≈30%)</option>
+      </select>
+      <div className="dori">
+        <div className="d-row"><span>Cámaras</span><b>{s.nCam}</b></div>
+        <div className="d-row"><span>Ancho de banda</span><b>{s.mbps.toFixed(1)} Mbps</b></div>
+        <div className="d-row"><span>Almacenamiento</span><b>{s.tb.toFixed(2)} TB</b></div>
+        <div className="d-row"><span>Disco sugerido</span><b>{s.discoTB} TB</b></div>
+        <div className="d-row"><span>NVR / grabador</span><b>{s.canales} canales</b></div>
+        <div className="d-row"><span>Switch PoE</span><b>{s.puertos} puertos</b></div>
+      </div>
+      <button className="btn on" style={{ width: '100%', marginTop: 8 }} onClick={onAplicar}>➕ Agregar NVR/disco/switch/UPS al presupuesto</button>
     </div>
   )
 }
