@@ -26,3 +26,7 @@ services:
         value: claude-opus-4-8
       - key: FRONTEND_URL
         value: https://cctvplan.onrender.com,https://cctvplan.axionet.io
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false

@@ -5,6 +5,8 @@ const cors = require('cors');
 const { PORT, FRONTEND_URL } = require('./config');
 const { autoDiseno, detectarMuros } = require('./diseno');
 const { satelite } = require('./satelite');
+const { pool, init } = require('./db');
+const { hash, verify, makeToken, requireAuth } = require('./auth');
 
 const app = express();
 const allow = FRONTEND_URL.split(',').map((s) => s.trim()).filter(Boolean);
@@ -54,4 +56,100 @@ app.post('/api/satelite', async (req, res) => {
   }
 });
 
+// ---------- Cuentas y proyectos en la nube ----------
+const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '');
+
+app.post('/api/register', async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'El guardado en la nube no está configurado en el servidor.' });
+  const nombre = (req.body?.nombre || '').trim();
+  const email = (req.body?.email || '').trim().toLowerCase();
+  const password = req.body?.password || '';
+  if (!nombre) return res.status(400).json({ error: 'Ingresa tu nombre.' });
+  if (!emailOk(email)) return res.status(400).json({ error: 'Email inválido.' });
+  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO users (email, nombre, password_hash) VALUES ($1, $2, $3) RETURNING id, email, nombre',
+      [email, nombre, hash(password)]
+    );
+    res.json({ token: makeToken(rows[0]), user: rows[0] });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Ese email ya está registrado. Inicia sesión.' });
+    console.error('register:', e); res.status(500).json({ error: 'No se pudo crear la cuenta.' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'El guardado en la nube no está configurado en el servidor.' });
+  const email = (req.body?.email || '').trim().toLowerCase();
+  const password = req.body?.password || '';
+  try {
+    const { rows } = await pool.query('SELECT id, email, nombre, password_hash FROM users WHERE email = $1', [email]);
+    const u = rows[0];
+    if (!u || !verify(password, u.password_hash)) return res.status(401).json({ error: 'Email o contraseña incorrectos.' });
+    res.json({ token: makeToken(u), user: { id: u.id, email: u.email, nombre: u.nombre } });
+  } catch (e) { console.error('login:', e); res.status(500).json({ error: 'No se pudo iniciar sesión.' }); }
+});
+
+app.get('/api/me', requireAuth, (req, res) => res.json({ user: req.user }));
+
+// Lista (sin el data pesado)
+app.get('/api/proyectos', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, nombre, actualizado_en FROM proyectos WHERE user_id = $1 ORDER BY actualizado_en DESC',
+      [req.user.id]
+    );
+    res.json({ proyectos: rows });
+  } catch (e) { console.error('lista:', e); res.status(500).json({ error: 'No se pudieron listar los proyectos.' }); }
+});
+
+// Abrir uno (con el data completo)
+app.get('/api/proyectos/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, nombre, data FROM proyectos WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Proyecto no encontrado.' });
+    res.json({ proyecto: rows[0] });
+  } catch (e) { console.error('abrir:', e); res.status(500).json({ error: 'No se pudo abrir el proyecto.' }); }
+});
+
+// Crear
+app.post('/api/proyectos', requireAuth, async (req, res) => {
+  const nombre = (req.body?.nombre || '').trim() || 'Proyecto sin nombre';
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Faltan datos del proyecto.' });
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO proyectos (user_id, nombre, data) VALUES ($1, $2, $3) RETURNING id, nombre, actualizado_en',
+      [req.user.id, nombre, data]
+    );
+    res.json({ proyecto: rows[0] });
+  } catch (e) { console.error('crear:', e); res.status(500).json({ error: 'No se pudo guardar el proyecto.' }); }
+});
+
+// Actualizar (guardar cambios)
+app.put('/api/proyectos/:id', requireAuth, async (req, res) => {
+  const nombre = (req.body?.nombre || '').trim() || 'Proyecto sin nombre';
+  const data = req.body?.data;
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Faltan datos del proyecto.' });
+  try {
+    const { rows } = await pool.query(
+      'UPDATE proyectos SET nombre = $1, data = $2, actualizado_en = now() WHERE id = $3 AND user_id = $4 RETURNING id, nombre, actualizado_en',
+      [nombre, data, req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Proyecto no encontrado.' });
+    res.json({ proyecto: rows[0] });
+  } catch (e) { console.error('actualizar:', e); res.status(500).json({ error: 'No se pudo guardar el proyecto.' }); }
+});
+
+// Borrar
+app.delete('/api/proyectos/:id', requireAuth, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM proyectos WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    if (!rowCount) return res.status(404).json({ error: 'Proyecto no encontrado.' });
+    res.json({ ok: true });
+  } catch (e) { console.error('borrar:', e); res.status(500).json({ error: 'No se pudo borrar el proyecto.' }); }
+});
+
+init().catch((e) => console.error('init DB:', e.message || e));
 app.listen(PORT, () => console.log(`🧠 CCTVPLAN IA escuchando en puerto ${PORT}`));

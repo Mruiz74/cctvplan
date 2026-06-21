@@ -70,6 +70,9 @@ export default function App() {
   const [murosLoading, setMurosLoading] = useState(false)
   const [dxf, setDxf] = useState(null) // { data, sel:Set } — selector de capas DXF
   const [sat, setSat] = useState(null) // { dir, metros, loading, err } — modal satélite
+  const [auth, setAuth] = useState(() => { try { return JSON.parse(localStorage.getItem('cctvplan_auth') || 'null') } catch { return null } })
+  const [cloud, setCloud] = useState(null) // modal proyectos en la nube
+  const [cloudId, setCloudId] = useState(null) // id del proyecto abierto en la nube
   const svgRef = useRef(null)
   const drag = useRef(null)
   const projRef = useRef(proj)
@@ -318,6 +321,81 @@ export default function App() {
     } catch (e) { setSat((s) => ({ ...s, loading: false, err: e.message || 'Error al traer la imagen' })) }
   }
 
+  // ---------- Proyectos en la nube (login propio + Neon) ----------
+  const guardarAuth = (a) => { setAuth(a); try { localStorage.setItem('cctvplan_auth', JSON.stringify(a)) } catch { /* */ } }
+  const logout = () => { setAuth(null); setCloudId(null); localStorage.removeItem('cctvplan_auth'); setCloud((c) => ({ ...(c || {}), tab: 'login', list: [], err: '' })) }
+  const apiAuth = (path, opts = {}) => fetch(API_IA + path, { ...opts, headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer ' + auth.token } : {}), ...(opts.headers || {}) } })
+
+  const cargarLista = async () => {
+    if (!auth) return
+    try {
+      const r = await apiAuth('/api/proyectos')
+      if (r.status === 401) { logout(); return }
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error')
+      setCloud((c) => ({ ...(c || {}), list: data.proyectos || [], err: '' }))
+    } catch (e) { setCloud((c) => ({ ...(c || {}), err: e.message || 'No se pudo cargar la lista' })) }
+  }
+
+  const doAuth = async () => {
+    const reg = cloud.tab === 'register'
+    setCloud((s) => ({ ...s, loading: true, err: '' }))
+    try {
+      const r = await fetch(API_IA + (reg ? '/api/register' : '/api/login'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: cloud.nombre, email: cloud.email, password: cloud.password }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error')
+      guardarAuth({ token: data.token, user: data.user })
+      setCloud((s) => ({ ...s, loading: false, err: '', password: '', tab: 'list' }))
+      cargarLista()
+    } catch (e) { setCloud((s) => ({ ...s, loading: false, err: e.message || 'Error' })) }
+  }
+
+  const guardarNube = async (forceNew) => {
+    if (!auth) { setCloud({ tab: 'login', email: '', password: '', nombre: '', err: '', list: [] }); return }
+    setCloud((c) => ({ ...(c || {}), saving: true, err: '', msg: '' }))
+    try {
+      const body = JSON.stringify({ nombre: proj.nombre, data: proj })
+      const useId = !forceNew && cloudId
+      const r = useId ? await apiAuth('/api/proyectos/' + useId, { method: 'PUT', body }) : await apiAuth('/api/proyectos', { method: 'POST', body })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error')
+      setCloudId(data.proyecto.id)
+      setCloud((c) => ({ ...(c || {}), saving: false, msg: 'Guardado en la nube ✓' }))
+      cargarLista()
+    } catch (e) { setCloud((c) => ({ ...(c || {}), saving: false, err: e.message || 'No se pudo guardar' })) }
+  }
+
+  const abrirNube = async (id) => {
+    try {
+      const r = await apiAuth('/api/proyectos/' + id)
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error')
+      hist.current = { past: [], future: [] }
+      const d = data.proyecto.data || {}
+      setProj({ ...nuevoProyecto(), ...d, nombre: data.proyecto.nombre })
+      setCloudId(id); setSel(null); setCloud(null)
+      fitView(d.bg)
+    } catch (e) { setCloud((c) => ({ ...(c || {}), err: e.message || 'No se pudo abrir' })) }
+  }
+
+  const borrarNube = async (id) => {
+    if (!confirm('¿Borrar este proyecto de la nube? No se puede deshacer.')) return
+    try {
+      const r = await apiAuth('/api/proyectos/' + id, { method: 'DELETE' })
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error || 'Error') }
+      if (id === cloudId) setCloudId(null)
+      cargarLista()
+    } catch (e) { setCloud((c) => ({ ...(c || {}), err: e.message || 'No se pudo borrar' })) }
+  }
+
+  const abrirModalNube = () => {
+    setCloud({ tab: auth ? 'list' : 'login', email: auth?.user?.email || '', password: '', nombre: '', err: '', msg: '', list: [] })
+    if (auth) cargarLista()
+  }
+
   // Auto-diseño con IA (Claude). Manda el plano + encargo al backend y coloca lo propuesto.
   const disenarIA = async () => {
     if (!proj.bg) { alert('Sube un plano primero (📐).'); return }
@@ -355,6 +433,7 @@ export default function App() {
       <header className="bar">
         <span className="logo">🎥 CCTVPLAN</span>
         <input className="proj-name" value={proj.nombre} onChange={(e) => set({ nombre: e.target.value })} />
+        <button className={'btn ' + (auth ? 'on' : '')} onClick={abrirModalNube} title="Guardar / abrir proyectos en la nube">☁️ {cloudId ? 'Guardado' : 'Proyectos'}</button>
         <label className="btn"><input type="file" accept="image/*,application/pdf,.dxf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
         <button className="btn" onClick={() => setSat({ dir: '', metros: 120, loading: false, err: '' })} title="Traer imagen satelital por dirección (exteriores)">🛰️ Satélite</button>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
@@ -514,6 +593,48 @@ export default function App() {
             {sat.err && <div className="err">{sat.err}</div>}
             <button className="btn on" style={{ width: '100%', marginTop: 10 }} disabled={sat.loading} onClick={buscarSatelite}>{sat.loading ? 'Buscando…' : 'Traer imagen'}</button>
             <button className="btn" style={{ width: '100%', marginTop: 6 }} disabled={sat.loading} onClick={() => setSat(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {cloud && (
+        <div className="modal-bg" onClick={() => setCloud(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            {!auth ? (
+              <>
+                <h3 className="sec">☁️ Proyectos en la nube</h3>
+                <div className="tabs">
+                  <button className={cloud.tab === 'login' ? 'tab on' : 'tab'} onClick={() => setCloud((c) => ({ ...c, tab: 'login', err: '' }))}>Entrar</button>
+                  <button className={cloud.tab === 'register' ? 'tab on' : 'tab'} onClick={() => setCloud((c) => ({ ...c, tab: 'register', err: '' }))}>Crear cuenta</button>
+                </div>
+                {cloud.tab === 'register' && <input className="in" placeholder="Tu nombre" value={cloud.nombre} onChange={(e) => setCloud((c) => ({ ...c, nombre: e.target.value }))} />}
+                <input className="in" placeholder="Email" type="email" value={cloud.email} onChange={(e) => setCloud((c) => ({ ...c, email: e.target.value }))} />
+                <input className="in" placeholder="Contraseña (mín. 6)" type="password" value={cloud.password} onChange={(e) => setCloud((c) => ({ ...c, password: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') doAuth() }} />
+                {cloud.err && <div className="err">{cloud.err}</div>}
+                <button className="btn on" style={{ width: '100%', marginTop: 6 }} disabled={cloud.loading} onClick={doAuth}>{cloud.loading ? '…' : (cloud.tab === 'register' ? 'Crear cuenta' : 'Entrar')}</button>
+                <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setCloud(null)}>Cancelar</button>
+              </>
+            ) : (
+              <>
+                <h3 className="sec">☁️ Mis proyectos</h3>
+                <div className="muted">{auth.user?.email} · <span style={{ color: '#7dd3fc', cursor: 'pointer' }} onClick={logout}>Cerrar sesión</span></div>
+                <button className="btn on" style={{ width: '100%', marginTop: 8 }} disabled={cloud.saving} onClick={() => guardarNube(false)}>{cloud.saving ? 'Guardando…' : (cloudId ? '💾 Guardar cambios' : '💾 Guardar este proyecto')}</button>
+                {cloudId && <button className="btn" style={{ width: '100%', marginTop: 6 }} disabled={cloud.saving} onClick={() => guardarNube(true)}>📑 Guardar como copia nueva</button>}
+                {cloud.msg && <div className="hint" style={{ marginTop: 8 }}>{cloud.msg}</div>}
+                {cloud.err && <div className="err">{cloud.err}</div>}
+                <div className="layer-list" style={{ marginTop: 10 }}>
+                  {(cloud.list || []).length === 0 && <div className="muted" style={{ padding: 12 }}>Aún no tienes proyectos guardados. Diseña y pulsa "Guardar".</div>}
+                  {(cloud.list || []).map((p) => (
+                    <div className="layer-row" key={p.id}>
+                      <span className="ln" style={{ cursor: 'pointer' }} onClick={() => abrirNube(p.id)}>{p.id === cloudId ? '● ' : ''}{p.nombre}</span>
+                      <button className="btn" style={{ padding: '3px 8px' }} onClick={() => abrirNube(p.id)}>Abrir</button>
+                      <button className="btn" style={{ padding: '3px 8px' }} onClick={() => borrarNube(p.id)} title="Borrar">🗑</button>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setCloud(null)}>Cerrar</button>
+              </>
+            )}
           </div>
         </div>
       )}
