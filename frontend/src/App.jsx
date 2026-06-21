@@ -152,7 +152,7 @@ export default function App() {
 
   const onPointerDown = (e) => {
     const w = toWorld(e.clientX, e.clientY)
-    if (mode === 'camera' || mode === 'device' || mode === 'wall' || mode === 'cable' || (mode === 'scale' && scalePts.length === 1)) snapshot()
+    if (mode === 'camera' || mode === 'device' || mode === 'wall' || mode === 'cable' || (mode === 'rect' && lineStart) || (mode === 'scale' && scalePts.length === 1)) snapshot()
     if (mode === 'camera' && catSel) {
       const id = 'c' + Date.now()
       set({ cameras: [...proj.cameras, { id, catId: catSel, lenteIdx: 0, x: w.x, y: w.y, rot: 0 }] })
@@ -177,6 +177,20 @@ export default function App() {
       const arr = mode === 'wall' ? 'walls' : 'cables'
       if (!lineStart) setLineStart(w)
       else { set({ [arr]: [...proj[arr], { x1: lineStart.x, y1: lineStart.y, x2: w.x, y2: w.y }] }); setLineStart(w) }
+      return
+    }
+    if (mode === 'rect') {
+      if (!lineStart) setLineStart(w)
+      else {
+        const ax = Math.min(lineStart.x, w.x), ay = Math.min(lineStart.y, w.y), bx = Math.max(lineStart.x, w.x), by = Math.max(lineStart.y, w.y)
+        set({ walls: [...proj.walls,
+          { x1: ax, y1: ay, x2: bx, y2: ay },
+          { x1: bx, y1: ay, x2: bx, y2: by },
+          { x1: bx, y1: by, x2: ax, y2: by },
+          { x1: ax, y1: by, x2: ax, y2: ay },
+        ] })
+        setLineStart(null)
+      }
       return
     }
     if (mode === 'auto') { setAutoPts((a) => [...a, w]); return }
@@ -307,7 +321,8 @@ export default function App() {
         <label className="btn"><input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
         <button className={'btn ' + (mode === 'wall' ? 'on' : '')} onClick={() => { setMode(mode === 'wall' ? 'select' : 'wall'); setLineStart(null) }}>🧱 Muro</button>
-        <button className="btn" disabled={murosLoading} onClick={detectarMurosIA} title="Detectar murallas con IA">{murosLoading ? '🪄…' : '🪄 Muros IA'}</button>
+        <button className={'btn ' + (mode === 'rect' ? 'on' : '')} onClick={() => { setMode(mode === 'rect' ? 'select' : 'rect'); setLineStart(null) }} title="Dibujar una sala (rectángulo) en 2 clics">▭ Sala</button>
+        <button className="btn" disabled={murosLoading} onClick={detectarMurosIA} title="Detectar recintos con IA (aproximado)">{murosLoading ? '🪄…' : '🪄 Muros IA'}</button>
         <button className={'btn ' + (mode === 'cable' ? 'on' : '')} onClick={() => { setMode(mode === 'cable' ? 'select' : 'cable'); setLineStart(null) }}>🔗 Cable</button>
         {mode === 'wall' && <button className="btn" onClick={() => deshacerLinea('walls')}>↶</button>}
         {mode === 'cable' && <button className="btn" onClick={() => deshacerLinea('cables')}>↶</button>}
