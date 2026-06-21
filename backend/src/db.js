@@ -34,6 +34,15 @@ async function init() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_proyectos_user ON proyectos(user_id);
+
+    CREATE TABLE IF NOT EXISTS camaras_usuario (
+      id        SERIAL PRIMARY KEY,
+      user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      cam_id    TEXT NOT NULL,
+      data      JSONB NOT NULL,
+      creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, cam_id)
+    );
   `);
 }
 

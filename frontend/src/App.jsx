@@ -443,11 +443,30 @@ export default function App() {
     if (!cam.resolucion_w && cam.mp) { cam.resolucion_w = Math.round(Math.sqrt((cam.mp * 1e6 * 16) / 9)); cam.resolucion_h = Math.round((cam.resolucion_w * 9) / 16) }
     if (!Array.isArray(cam.lentes) || !cam.lentes.length) cam.lentes = [{ focal_mm: 4, hfov_publicado_deg: null }]
     setCustomCams((a) => [...a, cam])
+    if (auth) apiAuth('/api/camaras', { method: 'POST', body: JSON.stringify({ camara: cam }) }).catch(() => {})
     setMarca(cam.marca); setCatSel(cam.id); setCatTab('camaras')
     setDsResult(null)
   }
 
-  const borrarCamUser = (id) => { setCustomCams((a) => a.filter((c) => c.id !== id)); if (catSel === id) setCatSel(null) }
+  const borrarCamUser = (id) => {
+    setCustomCams((a) => a.filter((c) => c.id !== id)); if (catSel === id) setCatSel(null)
+    if (auth) apiAuth('/api/camaras/' + id, { method: 'DELETE' }).catch(() => {})
+  }
+
+  // Sincroniza el catálogo del usuario con la nube al iniciar sesión (sube las locales nuevas).
+  const cargarCamarasNube = async () => {
+    if (!auth) return
+    try {
+      const r = await apiAuth('/api/camaras')
+      if (!r.ok) return
+      const nube = (await r.json()).camaras || []
+      const ids = new Set(nube.map((c) => c.id))
+      const localOnly = customCams.filter((c) => !ids.has(c.id))
+      for (const c of localOnly) { try { await apiAuth('/api/camaras', { method: 'POST', body: JSON.stringify({ camara: c }) }) } catch { /* */ } }
+      setCustomCams([...nube, ...localOnly])
+    } catch { /* */ }
+  }
+  useEffect(() => { if (auth) cargarCamarasNube() }, [auth?.token])
 
   // Auto-diseño con IA (Claude). Manda el plano + encargo al backend y coloca lo propuesto.
   const disenarIA = async () => {

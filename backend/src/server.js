@@ -166,5 +166,32 @@ app.delete('/api/proyectos/:id', requireAuth, async (req, res) => {
   } catch (e) { console.error('borrar:', e); res.status(500).json({ error: 'No se pudo borrar el proyecto.' }); }
 });
 
+// ---------- Cámaras del usuario (importadas de datasheets) ----------
+app.get('/api/camaras', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT data FROM camaras_usuario WHERE user_id = $1 ORDER BY creado_en', [req.user.id]);
+    res.json({ camaras: rows.map((r) => r.data) });
+  } catch (e) { console.error('cams list:', e); res.status(500).json({ error: 'No se pudieron cargar tus cámaras.' }); }
+});
+
+app.post('/api/camaras', requireAuth, async (req, res) => {
+  const cam = req.body?.camara;
+  if (!cam || !cam.id) return res.status(400).json({ error: 'Cámara inválida.' });
+  try {
+    await pool.query(
+      'INSERT INTO camaras_usuario (user_id, cam_id, data) VALUES ($1, $2, $3) ON CONFLICT (user_id, cam_id) DO UPDATE SET data = EXCLUDED.data',
+      [req.user.id, cam.id, cam]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error('cam save:', e); res.status(500).json({ error: 'No se pudo guardar la cámara.' }); }
+});
+
+app.delete('/api/camaras/:camId', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM camaras_usuario WHERE user_id = $1 AND cam_id = $2', [req.user.id, req.params.camId]);
+    res.json({ ok: true });
+  } catch (e) { console.error('cam del:', e); res.status(500).json({ error: 'No se pudo borrar la cámara.' }); }
+});
+
 init().catch((e) => console.error('init DB:', e.message || e));
 app.listen(PORT, () => console.log(`🧠 CCTVPLAN IA escuchando en puerto ${PORT}`));
