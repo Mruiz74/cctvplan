@@ -22,21 +22,22 @@ const TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      camaras: {
+      zonas: {
         type: 'array',
-        description: 'Cámaras propuestas. Coordenadas normalizadas 0..1 respecto al plano (x: izq→der, y: arriba→abajo).',
+        description: 'Recintos/áreas a vigilar. Para cada uno, su caja (bounding box) y la cámara recomendada. El sistema coloca y orienta la cámara solo.',
         items: {
           type: 'object',
           properties: {
-            modelo_id: { type: 'string', description: 'id EXACTO de una cámara del catálogo entregado.' },
-            x: { type: 'number', description: '0..1 horizontal' },
-            y: { type: 'number', description: '0..1 vertical' },
-            rot_deg: { type: 'number', description: 'Orientación en grados. 0=derecha/este, 90=abajo, 180=izquierda, 270=arriba.' },
-            lente_idx: { type: 'integer', description: 'Índice de la lente del modelo (0 = primera).' },
+            nombre: { type: 'string', description: 'Nombre del recinto/área (ej: "Oficina", "Acceso principal").' },
+            x: { type: 'number', description: 'Esquina sup-izquierda de la caja, 0..1 horizontal.' },
+            y: { type: 'number', description: 'Esquina sup-izquierda, 0..1 vertical.' },
+            w: { type: 'number', description: 'Ancho de la caja 0..1.' },
+            h: { type: 'number', description: 'Alto de la caja 0..1.' },
+            modelo_id: { type: 'string', description: 'id EXACTO de una cámara del catálogo.' },
             nivel_dori: { type: 'string', enum: NIVELES },
-            motivo: { type: 'string', description: 'Justificación breve (qué cubre).' },
+            motivo: { type: 'string', description: 'Qué cubre y por qué.' },
           },
-          required: ['modelo_id', 'x', 'y', 'rot_deg', 'lente_idx', 'nivel_dori', 'motivo'],
+          required: ['nombre', 'x', 'y', 'w', 'h', 'modelo_id', 'nivel_dori', 'motivo'],
         },
       },
       equipos: {
@@ -49,34 +50,30 @@ const TOOL = {
       },
       resumen: { type: 'string', description: 'Resumen del diseño y recomendaciones.' },
     },
-    required: ['camaras', 'equipos', 'resumen'],
+    required: ['zonas', 'equipos', 'resumen'],
   },
 };
 
 function sistema() {
   return `Eres un experto diseñador de sistemas de videovigilancia (CCTV) en Chile.
-Te entregan el PLANO de un sitio (imagen), opcionalmente la escala (px por metro) y un
-CATÁLOGO de cámaras disponibles. Diseña la ubicación de cámaras cumpliendo buenas prácticas:
-- Cubre TODOS los accesos/puertas con nivel "identificar" (rostro/patente).
-- Pasillos y áreas de tránsito con "reconocer".
-- Áreas amplias/perímetros con "observar" o "detectar".
-- Evita zonas ciegas; orienta cada cámara hacia lo que debe cubrir.
-- Usa SOLO modelos del catálogo (modelo_id exacto). Elige el tipo adecuado (domo interior,
-  bullet exterior, PTZ para grandes áreas) y la lente apropiada (lente_idx).
-- Coordenadas normalizadas 0..1 respecto al plano. Orientación: 0=este, 90=sur, 180=oeste, 270=norte.
-- COLOCACIÓN realista: ubica cada cámara en una ESQUINA o borde del recinto, montada en muro/cielo,
-  ORIENTADA HACIA el interior del recinto o el área a vigilar. NUNCA la orientes hacia afuera del
-  edificio ni contra un muro pegado. Apunta hacia la diagonal del recinto para cubrir más.
-- Una cámara por recinto/área relevante (no llenes de cámaras). Cubre cada PUERTA/acceso con
-  "identificar"; pasillos con "reconocer"; áreas amplias con "observar".
-- Elige la LENTE según el tamaño del recinto: recintos chicos → gran angular (focal corta, no
-  sobredimensiones el alcance); pasillos largos → focal más larga (más alcance). El cono NO debe
-  salirse del edificio.
-- Usa las MURALLAS entregadas (coordenadas) para entender los recintos y orientar correctamente.
-- REGLA DE MARCA (buenas prácticas): un sistema CCTV usa UNA SOLA marca, porque cada marca
-  implica su propio grabador/VMS y su esquema de licencias, y mezclar pierde las analíticas/IA
-  por compatibilidad. NO mezcles marcas salvo que se permita explícitamente.
-Responde SIEMPRE llamando a la herramienta proponer_diseno. Sé práctico y no sobre-dimensiones.`;
+Te entregan el PLANO de un sitio (imagen), la escala (px por metro), las MURALLAS detectadas
+(segmentos) y un CATÁLOGO de cámaras.
+TAREA: identifica los RECINTOS y ÁREAS a vigilar y, para CADA uno, entrega su CAJA (bounding box
+x,y,w,h normalizada 0..1 respecto al plano) y la cámara recomendada (modelo del catálogo + nivel
+DORI). El sistema colocará y orientará la cámara automáticamente en una esquina del recinto,
+mirando hacia el centro, y elegirá la lente para que el cono cubra ese recinto. TÚ no calculas
+coordenadas exactas de cámara: solo delimitas el recinto con su caja.
+Buenas prácticas:
+- UN recinto = UNA cámara (no llenes de cámaras). Identifica cada sala/oficina/pasillo/acceso real.
+- Cubre cada ACCESO/puerta con nivel "identificar"; pasillos con "reconocer"; áreas amplias con
+  "observar" o "detectar".
+- Las cajas deben corresponder a recintos REALES del plano (apóyate en las murallas). NO cubras el
+  exterior del edificio, ni el cuadro de título/notas/leyenda del plano.
+- Usa SOLO modelos del catálogo (modelo_id exacto). Domo para interior, bullet para exterior,
+  PTZ para grandes áreas/patios.
+- REGLA DE MARCA: un sistema CCTV usa UNA SOLA marca (un grabador/VMS, un esquema de licencias,
+  compatibilidad). NO mezcles marcas salvo que se permita explícitamente.
+Responde SIEMPRE llamando a la herramienta proponer_diseno. Sé práctico, no sobre-dimensiones.`;
 }
 
 async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida, muros }) {

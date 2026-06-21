@@ -13,6 +13,30 @@ const MARCAS = [...new Set(CAMS.map((c) => c.marca))]
 export const clp = (n) => '$' + (Math.round(Number(n) || 0)).toLocaleString('es-CL')
 const API_IA = 'https://cctvplan-api.onrender.com' // backend de IA (auto-diseño)
 
+// Coloca una cámara en un recinto propuesto por la IA: en una esquina, mirando al
+// centro, eligiendo la lente cuyo alcance (al nivel pedido) calce con el recinto.
+function colocarDeZona(zona, bg, ppm) {
+  const cat = catById(zona.modelo_id)
+  if (!cat || !(cat.lentes && cat.lentes.length)) return null
+  const x = (zona.x || 0) * bg.w, y = (zona.y || 0) * bg.h
+  const w = Math.max((zona.w || 0) * bg.w, 4), h = Math.max((zona.h || 0) * bg.h, 4)
+  const cx = x + w / 2, cy = y + h / 2
+  const corner = { x: x + w * 0.08, y: y + h * 0.08 }
+  const rot = Math.round((((Math.atan2(cy - corner.y, cx - corner.x) * 180) / Math.PI) % 360 + 360) % 360)
+  const diagM = ppm ? Math.hypot(w, h) / ppm : null
+  const nivel = ['identificar', 'reconocer', 'observar', 'detectar'].includes(zona.nivel_dori) ? zona.nivel_dori : 'reconocer'
+  let lenteIdx = 0
+  if (diagM) {
+    let mejor = Infinity
+    cat.lentes.forEach((l, i) => {
+      const alcance = coberturaCamara(cat, i).dori[nivel]
+      const score = alcance >= diagM ? alcance - diagM : 1e6 + (diagM - alcance)
+      if (score < mejor) { mejor = score; lenteIdx = i }
+    })
+  }
+  return { id: 'ia' + Date.now() + Math.floor(Math.random() * 1e5), catId: zona.modelo_id, lenteIdx, x: corner.x, y: corner.y, rot }
+}
+
 const BANDAS = [
   { key: 'detectar', label: 'Detectar', fill: 'rgba(239,68,68,0.12)' },
   { key: 'observar', label: 'Observar', fill: 'rgba(245,158,11,0.16)' },
@@ -249,11 +273,7 @@ export default function App() {
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Error del servidor de IA')
-      const nuevas = (data.camaras || []).map((s, i) => {
-        const cat = catById(s.modelo_id); if (!cat) return null
-        const li = Math.min(Math.max(0, (s.lente_idx | 0)), (cat.lentes?.length || 1) - 1)
-        return { id: 'ia' + Date.now() + i, catId: s.modelo_id, lenteIdx: li, x: (s.x || 0) * proj.bg.w, y: (s.y || 0) * proj.bg.h, rot: Math.round((((s.rot_deg || 0) % 360) + 360) % 360) }
-      }).filter(Boolean)
+      const nuevas = (data.zonas || []).map((z) => colocarDeZona(z, proj.bg, proj.pxPerMeter)).filter(Boolean)
       if (nuevas.length) snapshot()
       setProj((p) => ({ ...p, cameras: [...p.cameras, ...nuevas] }))
       setIaResult({ resumen: data.resumen, equipos: data.equipos || [], n: nuevas.length })
