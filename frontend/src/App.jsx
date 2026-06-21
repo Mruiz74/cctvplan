@@ -43,6 +43,7 @@ export default function App() {
   const [iaLoading, setIaLoading] = useState(false)
   const [iaResult, setIaResult] = useState(null)
   const [iaErr, setIaErr] = useState('')
+  const [murosLoading, setMurosLoading] = useState(false)
   const svgRef = useRef(null)
   const drag = useRef(null)
   const projRef = useRef(proj)
@@ -217,6 +218,21 @@ export default function App() {
     setAutoPts([]); setMode('select')
   }
 
+  // Detección de murallas con IA: Claude lee el plano y devuelve los segmentos.
+  const detectarMurosIA = async () => {
+    if (!proj.bg) { alert('Sube un plano primero (📐).'); return }
+    setMurosLoading(true)
+    try {
+      const r = await fetch(API_IA + '/api/muros', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imagenDataUrl: proj.bg.url }) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error del servidor de IA')
+      const nuevos = (data.muros || []).map((m) => ({ x1: (m.x1 || 0) * proj.bg.w, y1: (m.y1 || 0) * proj.bg.h, x2: (m.x2 || 0) * proj.bg.w, y2: (m.y2 || 0) * proj.bg.h }))
+        .filter((m) => Math.hypot(m.x2 - m.x1, m.y2 - m.y1) > 3)
+      if (nuevos.length) { snapshot(); set({ walls: [...proj.walls, ...nuevos] }) }
+      else alert('La IA no detectó murallas claras. Prueba con un plano más nítido o dibújalas a mano.')
+    } catch (e) { alert(e.message || 'No se pudo detectar las murallas') } finally { setMurosLoading(false) }
+  }
+
   // Auto-diseño con IA (Claude). Manda el plano + encargo al backend y coloca lo propuesto.
   const disenarIA = async () => {
     if (!proj.bg) { alert('Sube un plano primero (📐).'); return }
@@ -260,6 +276,7 @@ export default function App() {
         <label className="btn"><input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
         <button className={'btn ' + (mode === 'wall' ? 'on' : '')} onClick={() => { setMode(mode === 'wall' ? 'select' : 'wall'); setLineStart(null) }}>🧱 Muro</button>
+        <button className="btn" disabled={murosLoading} onClick={detectarMurosIA} title="Detectar murallas con IA">{murosLoading ? '🪄…' : '🪄 Muros IA'}</button>
         <button className={'btn ' + (mode === 'cable' ? 'on' : '')} onClick={() => { setMode(mode === 'cable' ? 'select' : 'cable'); setLineStart(null) }}>🔗 Cable</button>
         {mode === 'wall' && <button className="btn" onClick={() => deshacerLinea('walls')}>↶</button>}
         {mode === 'cable' && <button className="btn" onClick={() => deshacerLinea('cables')}>↶</button>}

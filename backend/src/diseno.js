@@ -130,4 +130,54 @@ async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, ca
   throw ultimo;
 }
 
-module.exports = { autoDiseno };
+// ─── Detección de murallas con IA ────────────────────────────────────────────
+const TOOL_MUROS = {
+  name: 'reportar_muros',
+  description: 'Lista los segmentos de muralla/pared detectados en el plano.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      muros: {
+        type: 'array',
+        description: 'Cada muro es un segmento recto en coordenadas normalizadas 0..1.',
+        items: {
+          type: 'object',
+          properties: { x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' } },
+          required: ['x1', 'y1', 'x2', 'y2'],
+        },
+      },
+    },
+    required: ['muros'],
+  },
+};
+
+async function detectarMuros({ imagenDataUrl }) {
+  const m = imagenDataUrl && /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(imagenDataUrl);
+  if (!m) { const e = new Error('Falta el plano'); e.code = 'NO_IMG'; throw e; }
+  const client = getClient();
+  let buf = Buffer.from(m[2], 'base64');
+  try { buf = await sharp(buf).resize({ width: 1568, height: 1568, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch {}
+  const cuerpo = {
+    model: ANTHROPIC_MODEL,
+    max_tokens: 4096,
+    system: `Analizas planos arquitectónicos. Identifica las MURALLAS/paredes: el perímetro del edificio y las divisiones internas principales. Devuelve cada muro como un segmento recto (x1,y1,x2,y2) en coordenadas normalizadas 0..1 (x: izq→der, y: arriba→abajo). NO incluyas cotas/medidas, texto, muebles ni símbolos; deja vanos donde hay puertas. Une los tramos en líneas rectas. Responde SIEMPRE con la herramienta reportar_muros.`,
+    tools: [TOOL_MUROS],
+    tool_choice: { type: 'tool', name: 'reportar_muros' },
+    messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') } },
+      { type: 'text', text: 'Detecta las murallas de este plano.' },
+    ] }],
+  };
+  let ultimo;
+  for (let i = 1; i <= 3; i++) {
+    try {
+      const msg = await client.messages.create(cuerpo);
+      const tu = msg.content.find((b) => b.type === 'tool_use');
+      if (!tu || !tu.input) throw new Error('Sin resultado');
+      return Array.isArray(tu.input.muros) ? tu.input.muros : [];
+    } catch (e) { ultimo = e; if (!esConexion(e) || i === 3) throw e; await new Promise((r) => setTimeout(r, 1500 * i)); }
+  }
+  throw ultimo;
+}
+
+module.exports = { autoDiseno, detectarMuros };
