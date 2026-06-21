@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import catalogo from './data/camaras.json'
 import dispositivos from './data/dispositivos.json'
 import { coberturaCamara } from './lib/coverage'
-import { sectorPath, dist, clamp, visibilityPolygon } from './geom'
+import { sectorPath, sectorAnillo, dist, clamp, visibilityPolygon } from './geom'
 import { abrirPropuesta } from './proposal'
 
 const CAMS = catalogo.camaras
@@ -860,12 +860,31 @@ function glifoCam(tipo, f) {
   }
 }
 
+// FOV vertical (grados) desde el HFOV y la relación de aspecto del sensor.
+function vfovDeg(cat, hfovDeg) {
+  const aspect = cat.resolucion_h && cat.resolucion_w ? cat.resolucion_h / cat.resolucion_w : 9 / 16
+  return (2 * Math.atan(Math.tan(((hfovDeg * Math.PI) / 180) / 2) * aspect) * 180) / Math.PI
+}
+// Huella en el piso según altura de montaje + inclinación (tilt). Devuelve metros.
+function huellaSuelo(cat, cam, hfovDeg) {
+  const H = +cam.altura || 0, T = +cam.tilt || 0
+  const vfov = vfovDeg(cat, hfovDeg)
+  if (H <= 0 || T <= 0) return { vfov, near: 0, far: Infinity }
+  const nearA = T + vfov / 2, farA = T - vfov / 2
+  const near = Math.max(0, H / Math.tan((nearA * Math.PI) / 180))
+  const far = farA > 0.5 ? H / Math.tan((farA * Math.PI) / 180) : Infinity
+  return { vfov, near, far }
+}
+
 // ─── Vista de cámara con oclusión ───────────────────────────────────────────
 function CamView({ cam, idx, cat, ppm, walls, sel, onDown, onRot }) {
   if (!cat) return null
   const cov = coberturaCamara(cat, cam.lenteIdx)
   const a1 = cam.rot - cov.hfov / 2, a2 = cam.rot + cov.hfov / 2
-  const maxR = cov.dori.detectar * ppm
+  const hf = huellaSuelo(cat, cam, cov.hfov)
+  const rIn = hf.near * ppm
+  const farCap = isFinite(hf.far) ? hf.far * ppm : Infinity
+  const maxR = Math.min(cov.dori.detectar * ppm, farCap)
   const vis = visibilityPolygon(cam.x, cam.y, a1, a2, maxR, walls)
   const clipId = 'clip-' + cam.id
   const pts = vis.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
@@ -876,7 +895,11 @@ function CamView({ cam, idx, cat, ppm, walls, sel, onDown, onRot }) {
     <g onPointerDown={onDown} style={{ cursor: 'move' }}>
       <clipPath id={clipId}><polygon points={pts} /></clipPath>
       <g clipPath={`url(#${clipId})`}>
-        {BANDAS.map((b) => <path key={b.key} d={sectorPath(cam.x, cam.y, cov.dori[b.key] * ppm, a1, a2)} fill={b.fill} stroke="none" />)}
+        {BANDAS.map((b) => {
+          const rOut = Math.min(cov.dori[b.key] * ppm, farCap)
+          if (rOut <= rIn) return null
+          return <path key={b.key} d={sectorAnillo(cam.x, cam.y, rOut, rIn, a1, a2)} fill={b.fill} stroke="none" />
+        })}
       </g>
       {sel && <>
         <line x1={cam.x} y1={cam.y} x2={hx} y2={hy} stroke="#0ea5e9" strokeWidth={2} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
@@ -901,6 +924,14 @@ function CamProps({ cam, cat, onUpd, onDel }) {
       </select>
       <label className="lbl">Rotación: {cam.rot}° <span className="muted" style={{ margin: 0 }}>· arrastra el punto azul 🔵 en el plano para apuntar</span></label>
       <input className="range" type="range" min={0} max={359} value={cam.rot} onChange={(e) => onUpd(cam.id, { rot: +e.target.value })} />
+      <label className="lbl">Altura de montaje: {cam.altura || 0} m</label>
+      <input className="range" type="range" min={0} max={12} step={0.5} value={cam.altura || 0} onChange={(e) => onUpd(cam.id, { altura: +e.target.value })} />
+      <label className="lbl">Inclinación ↓ (tilt): {cam.tilt || 0}°</label>
+      <input className="range" type="range" min={0} max={80} step={1} value={cam.tilt || 0} onChange={(e) => onUpd(cam.id, { tilt: +e.target.value })} />
+      {cam.tilt > 0 && cam.altura > 0 && (() => {
+        const hf = huellaSuelo(cat, cam, cov.hfov)
+        return <div className="hint" style={{ marginTop: 2 }}>🛬 Huella en piso: zona ciega ~{hf.near.toFixed(1)} m · alcance {isFinite(hf.far) ? '~' + hf.far.toFixed(1) + ' m' : 'al horizonte'} · FOV vert. {hf.vfov.toFixed(0)}°</div>
+      })()}
       <div className="dori">
         <div><b>Cobertura DORI</b> (HFOV {cov.hfov}°{cov.estimado ? ' est.' : ''})</div>
         <div className="d-row"><span className="d id">Identificar</span><b>{cov.dori.identificar} m</b></div>

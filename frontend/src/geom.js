@@ -12,6 +12,16 @@ export function sectorPath(cx, cy, r, a1, a2) {
   return `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${s.x.toFixed(1)} ${s.y.toFixed(1)} A ${r.toFixed(1)} ${r.toFixed(1)} 0 ${large} 1 ${e.x.toFixed(1)} ${e.y.toFixed(1)} Z`
 }
 
+// Sector anular (con hueco interior rIn): para la huella en el piso con zona ciega.
+export function sectorAnillo(cx, cy, rOut, rIn, a1, a2) {
+  if (rIn <= 0.5) return sectorPath(cx, cy, rOut, a1, a2)
+  if (rOut <= rIn) return ''
+  const o1 = polar(cx, cy, rOut, a1), o2 = polar(cx, cy, rOut, a2)
+  const i2 = polar(cx, cy, rIn, a2), i1 = polar(cx, cy, rIn, a1)
+  const large = Math.abs(a2 - a1) % 360 > 180 ? 1 : 0
+  return `M ${o1.x.toFixed(1)} ${o1.y.toFixed(1)} A ${rOut.toFixed(1)} ${rOut.toFixed(1)} 0 ${large} 1 ${o2.x.toFixed(1)} ${o2.y.toFixed(1)} L ${i2.x.toFixed(1)} ${i2.y.toFixed(1)} A ${rIn.toFixed(1)} ${rIn.toFixed(1)} 0 ${large} 0 ${i1.x.toFixed(1)} ${i1.y.toFixed(1)} Z`
+}
+
 export const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1)
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 
