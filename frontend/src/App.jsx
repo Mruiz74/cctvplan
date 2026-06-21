@@ -47,20 +47,37 @@ const BANDAS = [
 ]
 
 const STORE = 'cctvplan_project'
-const nuevoProyecto = () => ({ nombre: 'Proyecto sin nombre', cliente: '', bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [], precios: {}, precioCableM: 0, extras: [], rec: { fps: 15, codec: 'h265', dias: 14, factor: 1 } })
+const pisoVacio = (n) => ({ id: 'f' + Math.random().toString(36).slice(2, 8), nombre: 'Piso ' + n, bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [] })
+const nuevoProyecto = () => ({ nombre: 'Proyecto sin nombre', cliente: '', bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [], precios: {}, precioCableM: 0, extras: [], rec: { fps: 15, codec: 'h265', dias: 14, factor: 1 }, pisoActivo: 0, pisos: [pisoVacio(1)] })
+
+// El piso activo se trabaja en los campos de nivel superior (bg, cameras, walls…);
+// commitPiso guarda esos campos dentro de pisos[pisoActivo] (para BOM, guardar, cambiar de piso).
+function commitPiso(p) {
+  if (!p.pisos) return p
+  const pisos = p.pisos.map((pi, i) => (i === p.pisoActivo
+    ? { ...pi, bg: p.bg, pxPerMeter: p.pxPerMeter, cameras: p.cameras, devices: p.devices, walls: p.walls, cables: p.cables }
+    : pi))
+  return { ...p, pisos }
+}
+// Migra proyectos antiguos (sin pisos) a un único "Piso 1".
+function migrarPisos(p) {
+  if (p.pisos && p.pisos.length) return { ...p, pisoActivo: p.pisoActivo || 0 }
+  return { ...p, pisoActivo: 0, pisos: [{ ...pisoVacio(1), bg: p.bg || null, pxPerMeter: p.pxPerMeter || null, cameras: p.cameras || [], devices: p.devices || [], walls: p.walls || [], cables: p.cables || [] }] }
+}
 
 // Dimensionamiento del sistema: ancho de banda, almacenamiento y equipos sugeridos.
 function calcSistema(proj) {
   const rec = proj.rec || {}
   const fps = rec.fps || 15, dias = rec.dias || 14, factor = rec.factor ?? 1
   const codecF = rec.codec === 'h264' ? 1.8 : 1
+  const cams = (commitPiso(proj).pisos || []).flatMap((f) => f.cameras || [])
   let mbps = 0
-  for (const c of proj.cameras) {
+  for (const c of cams) {
     const cat = catById(c.catId); if (!cat) continue
     const mp = cat.mp || (cat.resolucion_w && cat.resolucion_h ? (cat.resolucion_w * cat.resolucion_h) / 1e6 : 2)
     mbps += Math.max(0.5, mp * (fps / 15) * codecF)
   }
-  const nCam = proj.cameras.length
+  const nCam = cams.length
   const tb = (mbps * 10.8 * factor * dias) / 1000 // Mbps→GB/día (×10.8) ×factor ×días ÷1000
   const canales = [4, 8, 16, 32, 64, 128].find((n) => n >= nCam) || Math.ceil(nCam / 16) * 16
   const puertos = [8, 16, 24, 48].find((n) => n >= nCam) || Math.ceil(nCam / 24) * 24
@@ -70,7 +87,7 @@ function calcSistema(proj) {
 
 export default function App() {
   const [proj, setProj] = useState(() => {
-    try { return { ...nuevoProyecto(), ...JSON.parse(localStorage.getItem(STORE)) } } catch { return nuevoProyecto() }
+    try { return migrarPisos({ ...nuevoProyecto(), ...JSON.parse(localStorage.getItem(STORE)) }) } catch { return nuevoProyecto() }
   })
   const [mode, setMode] = useState('select') // select | scale | wall | cable | camera | device
   const [catTab, setCatTab] = useState('camaras')
@@ -106,7 +123,7 @@ export default function App() {
 
   useEffect(() => {
     projRef.current = proj
-    try { localStorage.setItem(STORE, JSON.stringify(proj)) }
+    try { localStorage.setItem(STORE, JSON.stringify(commitPiso(proj))) }
     catch { /* plano muy grande para guardar local: el proyecto sigue en memoria */ }
   }, [proj])
 
@@ -173,6 +190,41 @@ export default function App() {
     const r = svgRef.current.getBoundingClientRect()
     const z = Math.min(r.width / bg.w, r.height / bg.h) * 0.9
     setView({ zoom: z, tx: (r.width - bg.w * z) / 2, ty: (r.height - bg.h * z) / 2 })
+  }
+
+  // ---------- Pisos / niveles ----------
+  const cargarPiso = (committed, idx) => {
+    const f = committed.pisos[idx]
+    return { ...committed, pisoActivo: idx, bg: f.bg, pxPerMeter: f.pxPerMeter, cameras: f.cameras, devices: f.devices, walls: f.walls, cables: f.cables }
+  }
+  const cambiarPiso = (idx) => {
+    if (idx === proj.pisoActivo) return
+    snapshot()
+    const committed = commitPiso(proj)
+    setProj(cargarPiso(committed, idx)); setSel(null); setMode('select')
+    fitView(committed.pisos[idx].bg)
+  }
+  const agregarPiso = () => {
+    snapshot()
+    const committed = commitPiso(proj)
+    const nuevo = pisoVacio(committed.pisos.length + 1)
+    setProj({ ...committed, pisos: [...committed.pisos, nuevo], pisoActivo: committed.pisos.length, bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [] })
+    setSel(null); setMode('select')
+  }
+  const borrarPiso = (idx) => {
+    if (proj.pisos.length <= 1) { alert('Debe quedar al menos un piso.'); return }
+    if (!confirm('¿Borrar "' + (proj.pisos[idx]?.nombre || 'piso') + '" y todo su contenido?')) return
+    snapshot()
+    const committed = commitPiso(proj)
+    const pisos = committed.pisos.filter((_, i) => i !== idx)
+    const act = committed.pisoActivo > idx ? committed.pisoActivo - 1 : Math.min(committed.pisoActivo, pisos.length - 1)
+    setProj(cargarPiso({ ...committed, pisos }, act)); setSel(null)
+    fitView(pisos[act].bg)
+  }
+  const renombrarActivo = () => {
+    const nom = prompt('Nombre del piso:', proj.pisos[proj.pisoActivo]?.nombre || '')
+    if (nom == null) return
+    setProj((p) => ({ ...p, pisos: p.pisos.map((pi, i) => (i === p.pisoActivo ? { ...pi, nombre: nom.trim() || pi.nombre } : pi)) }))
   }
 
   const subirPlano = async (file) => {
@@ -406,7 +458,7 @@ export default function App() {
     if (!auth) { setCloud({ tab: 'login', email: '', password: '', nombre: '', err: '', list: [] }); return }
     setCloud((c) => ({ ...(c || {}), saving: true, err: '', msg: '' }))
     try {
-      const body = JSON.stringify({ nombre: proj.nombre, data: proj })
+      const body = JSON.stringify({ nombre: proj.nombre, data: commitPiso(proj) })
       const useId = !forceNew && cloudId
       const r = useId ? await apiAuth('/api/proyectos/' + useId, { method: 'PUT', body }) : await apiAuth('/api/proyectos', { method: 'POST', body })
       const data = await r.json()
@@ -424,9 +476,10 @@ export default function App() {
       if (!r.ok) throw new Error(data.error || 'Error')
       hist.current = { past: [], future: [] }
       const d = data.proyecto.data || {}
-      setProj({ ...nuevoProyecto(), ...d, nombre: data.proyecto.nombre })
+      const mig = migrarPisos({ ...nuevoProyecto(), ...d, nombre: data.proyecto.nombre })
+      setProj(mig)
       setCloudId(id); setSel(null); setCloud(null)
-      fitView(d.bg)
+      fitView(mig.bg)
     } catch (e) { setCloud((c) => ({ ...(c || {}), err: e.message || 'No se pudo abrir' })) }
   }
 
@@ -530,7 +583,7 @@ export default function App() {
   const cams = customCams.length ? [...CAMS, ...customCams] : CAMS
   const marcas = customCams.length ? [...new Set(cams.map((c) => c.marca))] : MARCAS
 
-  const cableM = proj.pxPerMeter ? proj.cables.reduce((s, c) => s + dist(c.x1, c.y1, c.x2, c.y2), 0) / proj.pxPerMeter : 0
+  const cableM = commitPiso(proj).pisos.reduce((s, f) => s + (f.pxPerMeter ? (f.cables || []).reduce((a, c) => a + dist(c.x1, c.y1, c.x2, c.y2), 0) / f.pxPerMeter : 0), 0)
 
   return (
     <div className="app">
@@ -558,6 +611,18 @@ export default function App() {
         <button className="btn on" onClick={() => abrirPropuesta(buildBom(proj), { empresa, cliente: proj.cliente, sistema: proj.cameras.length ? calcSistema(proj) : null })}>📄 Propuesta</button>
         <button className="btn" onClick={() => { if (confirm('¿Nuevo proyecto? Se borra el actual.')) { snapshot(); setProj(nuevoProyecto()); setSel(null) } }}>✚</button>
       </header>
+
+      <div className="floors">
+        <span className="floors-lbl">🏢 Pisos:</span>
+        {proj.pisos.map((f, i) => (
+          <button key={f.id} className={'floor ' + (i === proj.pisoActivo ? 'on' : '')} onClick={() => cambiarPiso(i)}>
+            {f.nombre || 'Piso ' + (i + 1)}
+            {i === proj.pisoActivo && proj.pisos.length > 1 && <span className="fx" title="Borrar piso" onClick={(e) => { e.stopPropagation(); borrarPiso(i) }}>×</span>}
+          </button>
+        ))}
+        <button className="floor add" onClick={agregarPiso} title="Agregar piso">＋ Piso</button>
+        <button className="floor" onClick={renombrarActivo} title="Renombrar piso actual">✏️</button>
+      </div>
 
       <div className="layout">
         <aside className="side">
@@ -634,7 +699,7 @@ export default function App() {
           {camSel && <CamProps cam={camSel} cat={catById(camSel.catId)} onUpd={updCam} onDel={delSel} />}
           {devSelObj && <div className="props"><h3 className="sec">{devById(devSelObj.devId)?.icono} {devById(devSelObj.devId)?.modelo}</h3><button className="btn danger" onClick={delSel}>🗑️ Eliminar</button></div>}
 
-          {proj.cameras.length > 0 && <SistemaPanel proj={proj} onRec={(k, v) => set({ rec: { ...(proj.rec || {}), [k]: v } })} onAplicar={() => { const s = calcSistema(proj); set({ extras: [
+          {calcSistema(proj).nCam > 0 && <SistemaPanel proj={proj} onRec={(k, v) => set({ rec: { ...(proj.rec || {}), [k]: v } })} onAplicar={() => { const s = calcSistema(proj); set({ extras: [
             { key: 'nvr', label: 'NVR / grabador ' + s.canales + ' canales', qty: 1 },
             { key: 'disco', label: 'Disco vigilancia ' + s.discoTB + ' TB', qty: 1 },
             { key: 'switch', label: 'Switch PoE ' + s.puertos + ' puertos', qty: 1 },
@@ -808,21 +873,25 @@ export default function App() {
 
 // ─── BOM (cálculo) ───────────────────────────────────────────────────────────
 export function buildBom(proj) {
+  const p = commitPiso(proj)
+  const floors = p.pisos || [{ cameras: p.cameras, devices: p.devices, cables: p.cables, pxPerMeter: p.pxPerMeter }]
   const grupos = {}
-  for (const c of proj.cameras) {
-    const cat = catById(c.catId); if (!cat) continue
-    grupos[c.catId] = grupos[c.catId] || { key: c.catId, label: cat.marca + ' ' + cat.modelo, tipo: 'Cámara', qty: 0 }
-    grupos[c.catId].qty++
+  for (const f of floors) {
+    for (const c of (f.cameras || [])) {
+      const cat = catById(c.catId); if (!cat) continue
+      grupos[c.catId] = grupos[c.catId] || { key: c.catId, label: cat.marca + ' ' + cat.modelo, tipo: 'Cámara', qty: 0 }
+      grupos[c.catId].qty++
+    }
+    for (const d of (f.devices || [])) {
+      const dd = devById(d.devId); if (!dd) continue
+      grupos[d.devId] = grupos[d.devId] || { key: d.devId, label: dd.modelo, tipo: 'Equipo', qty: 0 }
+      grupos[d.devId].qty++
+    }
   }
-  for (const d of proj.devices) {
-    const dd = devById(d.devId); if (!dd) continue
-    grupos[d.devId] = grupos[d.devId] || { key: d.devId, label: dd.modelo, tipo: 'Equipo', qty: 0 }
-    grupos[d.devId].qty++
-  }
-  for (const e of (proj.extras || [])) {
+  for (const e of (p.extras || [])) {
     if (e.qty > 0) grupos['x_' + e.key] = { key: 'x_' + e.key, label: e.label, tipo: 'Sistema', qty: e.qty }
   }
-  const cableM = proj.pxPerMeter ? proj.cables.reduce((s, c) => s + Math.hypot(c.x2 - c.x1, c.y2 - c.y1), 0) / proj.pxPerMeter : 0
+  const cableM = floors.reduce((s, f) => s + (f.pxPerMeter ? (f.cables || []).reduce((a, c) => a + Math.hypot(c.x2 - c.x1, c.y2 - c.y1), 0) / f.pxPerMeter : 0), 0)
   const rows = Object.values(grupos).map((g) => {
     const unit = Number(proj.precios?.[g.key]) || 0
     return { ...g, unit, subtotal: unit * g.qty }
