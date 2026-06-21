@@ -1,0 +1,12 @@
+{
+  "dispositivos": [
+    { "id": "nvr-8", "modelo": "NVR 8 canales", "tipo": "nvr", "icono": "🗄️" },
+    { "id": "nvr-16", "modelo": "NVR 16 canales", "tipo": "nvr", "icono": "🗄️" },
+    { "id": "nvr-32", "modelo": "NVR 32 canales", "tipo": "nvr", "icono": "🗄️" },
+    { "id": "sw-poe-8", "modelo": "Switch PoE 8 puertos", "tipo": "switch", "icono": "🔌" },
+    { "id": "sw-poe-16", "modelo": "Switch PoE 16 puertos", "tipo": "switch", "icono": "🔌" },
+    { "id": "sw-poe-24", "modelo": "Switch PoE 24 puertos", "tipo": "switch", "icono": "🔌" },
+    { "id": "ups", "modelo": "UPS / Respaldo", "tipo": "ups", "icono": "🔋" },
+    { "id": "rack", "modelo": "Rack / Gabinete", "tipo": "rack", "icono": "🗃️" }
+  ]
+}
