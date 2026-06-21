@@ -45,15 +45,27 @@ export default function App() {
   const [iaErr, setIaErr] = useState('')
   const svgRef = useRef(null)
   const drag = useRef(null)
+  const projRef = useRef(proj)
+  const hist = useRef({ past: [], future: [] })
 
   useEffect(() => {
+    projRef.current = proj
     try { localStorage.setItem(STORE, JSON.stringify(proj)) }
     catch { /* plano muy grande para guardar local: el proyecto sigue en memoria */ }
   }, [proj])
 
+  // Historial (deshacer/rehacer)
+  const snapshot = () => { const h = hist.current; h.past.push(JSON.stringify(projRef.current)); if (h.past.length > 40) h.past.shift(); h.future = [] }
+  const undo = () => { const h = hist.current; if (!h.past.length) return; h.future.push(JSON.stringify(projRef.current)); setProj(JSON.parse(h.past.pop())); setSel(null) }
+  const redo = () => { const h = hist.current; if (!h.future.length) return; h.past.push(JSON.stringify(projRef.current)); setProj(JSON.parse(h.future.pop())); setSel(null) }
+
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel && document.activeElement?.tagName !== 'INPUT') {
+      const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? redo() : undo(); return }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && sel && !editing) {
+        snapshot()
         if (sel.kind === 'cam') setProj((p) => ({ ...p, cameras: p.cameras.filter((c) => c.id !== sel.id) }))
         else setProj((p) => ({ ...p, devices: p.devices.filter((d) => d.id !== sel.id) }))
         setSel(null)
@@ -115,6 +127,7 @@ export default function App() {
 
   const onPointerDown = (e) => {
     const w = toWorld(e.clientX, e.clientY)
+    if (mode === 'camera' || mode === 'device' || mode === 'wall' || mode === 'cable' || (mode === 'scale' && scalePts.length === 1)) snapshot()
     if (mode === 'camera' && catSel) {
       const id = 'c' + Date.now()
       set({ cameras: [...proj.cameras, { id, catId: catSel, lenteIdx: 0, x: w.x, y: w.y, rot: 0 }] })
@@ -160,6 +173,7 @@ export default function App() {
   const startDrag = (e, kind, item) => {
     e.stopPropagation()
     if (mode !== 'select') return
+    snapshot()
     setSel({ kind, id: item.id })
     const w = toWorld(e.clientX, e.clientY)
     drag.current = { type: kind, id: item.id, ox: w.x - item.x, oy: w.y - item.y }
@@ -169,6 +183,7 @@ export default function App() {
   const updCam = (id, patch) => setProj((p) => ({ ...p, cameras: p.cameras.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
   const delSel = () => {
     if (!sel) return
+    snapshot()
     if (sel.kind === 'cam') setProj((p) => ({ ...p, cameras: p.cameras.filter((c) => c.id !== sel.id) }))
     else setProj((p) => ({ ...p, devices: p.devices.filter((d) => d.id !== sel.id) }))
     setSel(null)
@@ -198,7 +213,7 @@ export default function App() {
       }
       acc += segLen
     }
-    if (nuevas.length) set({ cameras: [...proj.cameras, ...nuevas] })
+    if (nuevas.length) { snapshot(); set({ cameras: [...proj.cameras, ...nuevas] }) }
     setAutoPts([]); setMode('select')
   }
 
@@ -222,6 +237,7 @@ export default function App() {
         const li = Math.min(Math.max(0, (s.lente_idx | 0)), (cat.lentes?.length || 1) - 1)
         return { id: 'ia' + Date.now() + i, catId: s.modelo_id, lenteIdx: li, x: (s.x || 0) * proj.bg.w, y: (s.y || 0) * proj.bg.h, rot: Math.round((((s.rot_deg || 0) % 360) + 360) % 360) }
       }).filter(Boolean)
+      if (nuevas.length) snapshot()
       setProj((p) => ({ ...p, cameras: [...p.cameras, ...nuevas] }))
       setIaResult({ resumen: data.resumen, equipos: data.equipos || [], n: nuevas.length })
       setMode('select')
@@ -250,10 +266,12 @@ export default function App() {
         <button className={'btn ' + (mode === 'select' ? 'on' : '')} onClick={() => setMode('select')}>🖐️</button>
         <button className={'btn ' + (mode === 'auto' ? 'on' : '')} onClick={() => { setMode('auto'); setAutoPts([]); setCatTab('camaras') }}>🤖 Auto</button>
         <button className="btn" onClick={() => fitView()}>🔍</button>
+        <button className="btn" onClick={undo} title="Deshacer (Ctrl+Z)">↶</button>
+        <button className="btn" onClick={redo} title="Rehacer (Ctrl+Y)">↷</button>
         <div className="spacer" />
         <span className="escala">{proj.pxPerMeter ? `${proj.pxPerMeter.toFixed(1)} px/m ✓` : '⚠️ sin escala'}</span>
         <button className="btn on" onClick={() => abrirPropuesta(buildBom(proj))}>📄 Propuesta</button>
-        <button className="btn" onClick={() => { if (confirm('¿Nuevo proyecto? Se borra el actual.')) { setProj(nuevoProyecto()); setSel(null) } }}>✚</button>
+        <button className="btn" onClick={() => { if (confirm('¿Nuevo proyecto? Se borra el actual.')) { snapshot(); setProj(nuevoProyecto()); setSel(null) } }}>✚</button>
       </header>
 
       <div className="layout">
