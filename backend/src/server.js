@@ -13,12 +13,12 @@ app.use(express.json({ limit: '14mb' })); // el plano viaja en base64
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'CCTVPLAN IA' }));
 
 app.post('/api/autodiseno', async (req, res) => {
-  const { imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida } = req.body || {};
+  const { imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida, muros } = req.body || {};
   if (!catalogo || !Array.isArray(catalogo) || catalogo.length === 0) {
     return res.status(400).json({ error: 'Falta el catálogo de cámaras' });
   }
   try {
-    const diseno = await autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida });
+    const diseno = await autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida, muros });
     res.json(diseno);
   } catch (e) {
     if (e.code === 'NO_API_KEY') return res.status(503).json({ error: 'La IA no está configurada en el servidor (falta ANTHROPIC_API_KEY).' });

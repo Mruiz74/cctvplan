@@ -243,6 +243,7 @@ export default function App() {
         body: JSON.stringify({
           imagenDataUrl: proj.bg.url, brief: iaBrief, pxPerMeter: proj.pxPerMeter,
           planoW: proj.bg.w, planoH: proj.bg.h, marcaPreferida: iaMarca,
+          muros: (proj.walls || []).map((w) => ({ x1: w.x1 / proj.bg.w, y1: w.y1 / proj.bg.h, x2: w.x2 / proj.bg.w, y2: w.y2 / proj.bg.h })),
           catalogo: CAMS.filter((c) => !c._es_serie),
         }),
       })

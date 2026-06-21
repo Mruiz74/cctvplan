@@ -64,13 +64,22 @@ CATÁLOGO de cámaras disponibles. Diseña la ubicación de cámaras cumpliendo 
 - Usa SOLO modelos del catálogo (modelo_id exacto). Elige el tipo adecuado (domo interior,
   bullet exterior, PTZ para grandes áreas) y la lente apropiada (lente_idx).
 - Coordenadas normalizadas 0..1 respecto al plano. Orientación: 0=este, 90=sur, 180=oeste, 270=norte.
+- COLOCACIÓN realista: ubica cada cámara en una ESQUINA o borde del recinto, montada en muro/cielo,
+  ORIENTADA HACIA el interior del recinto o el área a vigilar. NUNCA la orientes hacia afuera del
+  edificio ni contra un muro pegado. Apunta hacia la diagonal del recinto para cubrir más.
+- Una cámara por recinto/área relevante (no llenes de cámaras). Cubre cada PUERTA/acceso con
+  "identificar"; pasillos con "reconocer"; áreas amplias con "observar".
+- Elige la LENTE según el tamaño del recinto: recintos chicos → gran angular (focal corta, no
+  sobredimensiones el alcance); pasillos largos → focal más larga (más alcance). El cono NO debe
+  salirse del edificio.
+- Usa las MURALLAS entregadas (coordenadas) para entender los recintos y orientar correctamente.
 - REGLA DE MARCA (buenas prácticas): un sistema CCTV usa UNA SOLA marca, porque cada marca
   implica su propio grabador/VMS y su esquema de licencias, y mezclar pierde las analíticas/IA
   por compatibilidad. NO mezcles marcas salvo que se permita explícitamente.
 Responde SIEMPRE llamando a la herramienta proponer_diseno. Sé práctico y no sobre-dimensiones.`;
 }
 
-async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida }) {
+async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida, muros }) {
   const client = getClient();
   const content = [];
 
@@ -102,6 +111,7 @@ async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, ca
     text: `ENCARGO: ${brief || 'Diseña una cobertura CCTV completa y razonable para este plano.'}\n` +
       `MARCA: ${marcaTxt}\n` +
       `ESCALA: ${pxPerMeter ? pxPerMeter.toFixed(1) + ' px/m' : 'no calibrada'}. PLANO: ${planoW}x${planoH}px.\n` +
+      `MURALLAS DETECTADAS (segmentos normalizados x1,y1,x2,y2): ${JSON.stringify((muros || []).slice(0, 200))}\n` +
       `CATÁLOGO DISPONIBLE (usa estos modelo_id):\n${JSON.stringify(cat)}`,
   });
 
