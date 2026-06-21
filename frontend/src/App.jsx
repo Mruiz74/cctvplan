@@ -47,7 +47,7 @@ const BANDAS = [
 ]
 
 const STORE = 'cctvplan_project'
-const nuevoProyecto = () => ({ nombre: 'Proyecto sin nombre', bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [], precios: {}, precioCableM: 0, extras: [], rec: { fps: 15, codec: 'h265', dias: 14, factor: 1 } })
+const nuevoProyecto = () => ({ nombre: 'Proyecto sin nombre', cliente: '', bg: null, pxPerMeter: null, cameras: [], devices: [], walls: [], cables: [], precios: {}, precioCableM: 0, extras: [], rec: { fps: 15, codec: 'h265', dias: 14, factor: 1 } })
 
 // Dimensionamiento del sistema: ancho de banda, almacenamiento y equipos sugeridos.
 function calcSistema(proj) {
@@ -97,6 +97,8 @@ export default function App() {
   const [auth, setAuth] = useState(() => { try { return JSON.parse(localStorage.getItem('cctvplan_auth') || 'null') } catch { return null } })
   const [cloud, setCloud] = useState(null) // modal proyectos en la nube
   const [cloudId, setCloudId] = useState(null) // id del proyecto abierto en la nube
+  const [empresa, setEmpresa] = useState(() => { try { return JSON.parse(localStorage.getItem('cctvplan_empresa') || '{}') } catch { return {} } })
+  const [marcaModal, setMarcaModal] = useState(false)
   const svgRef = useRef(null)
   const drag = useRef(null)
   const projRef = useRef(proj)
@@ -112,6 +114,15 @@ export default function App() {
     CUSTOM = customCams // para que catById (módulo) encuentre las del usuario
     try { localStorage.setItem('cctvplan_cams', JSON.stringify(customCams)) } catch { /* */ }
   }, [customCams])
+
+  useEffect(() => { try { localStorage.setItem('cctvplan_empresa', JSON.stringify(empresa)) } catch { /* */ } }, [empresa])
+
+  const subirLogo = (file) => {
+    if (!file) return
+    const r = new FileReader()
+    r.onload = () => setEmpresa((e) => ({ ...e, logo: r.result }))
+    r.readAsDataURL(file)
+  }
 
   // Historial (deshacer/rehacer)
   const snapshot = () => { const h = hist.current; h.past.push(JSON.stringify(projRef.current)); if (h.past.length > 40) h.past.shift(); h.future = [] }
@@ -543,7 +554,8 @@ export default function App() {
         <button className="btn" onClick={redo} title="Rehacer (Ctrl+Y)">↷</button>
         <div className="spacer" />
         <span className="escala">{proj.pxPerMeter ? `${proj.pxPerMeter.toFixed(1)} px/m ✓` : '⚠️ sin escala'}</span>
-        <button className="btn on" onClick={() => abrirPropuesta(buildBom(proj))}>📄 Propuesta</button>
+        <button className="btn" onClick={() => setMarcaModal(true)} title="Tu logo, empresa y cliente para la propuesta">🏢 Marca</button>
+        <button className="btn on" onClick={() => abrirPropuesta(buildBom(proj), { empresa, cliente: proj.cliente, sistema: proj.cameras.length ? calcSistema(proj) : null })}>📄 Propuesta</button>
         <button className="btn" onClick={() => { if (confirm('¿Nuevo proyecto? Se borra el actual.')) { snapshot(); setProj(nuevoProyecto()); setSel(null) } }}>✚</button>
       </header>
 
@@ -765,6 +777,28 @@ export default function App() {
             {dsResult.confianza === 'baja' && <div className="err">Lectura de baja confianza — verifica los datos contra el datasheet antes de usar.</div>}
             <button className="btn on" style={{ width: '100%', marginTop: 8 }} onClick={confirmarDatasheet}>Agregar al catálogo</button>
             <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setDsResult(null)}>Descartar</button>
+          </div>
+        </div>
+      )}
+
+      {marcaModal && (
+        <div className="modal-bg" onClick={() => setMarcaModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="sec">🏢 Marca de la propuesta</h3>
+            <div className="muted">Tu logo y datos salen en el PDF de propuesta. Se guardan en este navegador.</div>
+            <label className="lbl">Logo de tu empresa</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              {empresa.logo && <img src={empresa.logo} alt="logo" style={{ height: 40, maxWidth: 120, objectFit: 'contain', background: '#fff', borderRadius: 6, padding: 3 }} />}
+              <label className="btn" style={{ flex: 1, textAlign: 'center' }}><input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => subirLogo(e.target.files[0])} />{empresa.logo ? 'Cambiar logo' : 'Subir logo'}</label>
+              {empresa.logo && <button className="btn" onClick={() => setEmpresa((e) => ({ ...e, logo: null }))}>Quitar</button>}
+            </div>
+            <label className="lbl">Nombre de tu empresa</label>
+            <input className="in" placeholder="Ej: Axionet Seguridad" value={empresa.nombre || ''} onChange={(e) => setEmpresa((p) => ({ ...p, nombre: e.target.value }))} />
+            <label className="lbl">Contacto (pie de página)</label>
+            <input className="in" placeholder="Ej: contacto@axionet.io · +56 9 1234 5678" value={empresa.contacto || ''} onChange={(e) => setEmpresa((p) => ({ ...p, contacto: e.target.value }))} />
+            <label className="lbl">Cliente de este proyecto</label>
+            <input className="in" placeholder="Ej: Condominio Los Robles" value={proj.cliente || ''} onChange={(e) => set({ cliente: e.target.value })} />
+            <button className="btn on" style={{ width: '100%', marginTop: 6 }} onClick={() => setMarcaModal(false)}>Listo</button>
           </div>
         </div>
       )}
