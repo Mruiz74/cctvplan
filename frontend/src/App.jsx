@@ -11,6 +11,7 @@ const catById = (id) => CAMS.find((c) => c.id === id)
 const devById = (id) => DEVS.find((d) => d.id === id)
 const MARCAS = [...new Set(CAMS.map((c) => c.marca))]
 export const clp = (n) => '$' + (Math.round(Number(n) || 0)).toLocaleString('es-CL')
+const API_IA = 'https://cctvplan-api.onrender.com' // backend de IA (auto-diseño)
 
 const BANDAS = [
   { key: 'detectar', label: 'Detectar', fill: 'rgba(239,68,68,0.12)' },
@@ -37,6 +38,10 @@ export default function App() {
   const [marca, setMarca] = useState(MARCAS[0])
   const [autoPts, setAutoPts] = useState([])
   const [autoNivel, setAutoNivel] = useState('reconocer')
+  const [iaBrief, setIaBrief] = useState('')
+  const [iaLoading, setIaLoading] = useState(false)
+  const [iaResult, setIaResult] = useState(null)
+  const [iaErr, setIaErr] = useState('')
   const svgRef = useRef(null)
   const drag = useRef(null)
 
@@ -196,6 +201,33 @@ export default function App() {
     setAutoPts([]); setMode('select')
   }
 
+  // Auto-diseño con IA (Claude). Manda el plano + encargo al backend y coloca lo propuesto.
+  const disenarIA = async () => {
+    if (!proj.bg) { alert('Sube un plano primero (📐).'); return }
+    setIaErr(''); setIaResult(null); setIaLoading(true)
+    try {
+      const r = await fetch(API_IA + '/api/autodiseno', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imagenDataUrl: proj.bg.url, brief: iaBrief, pxPerMeter: proj.pxPerMeter,
+          planoW: proj.bg.w, planoH: proj.bg.h, catalogo: CAMS.filter((c) => !c._es_serie),
+        }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Error del servidor de IA')
+      const nuevas = (data.camaras || []).map((s, i) => {
+        const cat = catById(s.modelo_id); if (!cat) return null
+        const li = Math.min(Math.max(0, (s.lente_idx | 0)), (cat.lentes?.length || 1) - 1)
+        return { id: 'ia' + Date.now() + i, catId: s.modelo_id, lenteIdx: li, x: (s.x || 0) * proj.bg.w, y: (s.y || 0) * proj.bg.h, rot: Math.round((((s.rot_deg || 0) % 360) + 360) % 360) }
+      }).filter(Boolean)
+      setProj((p) => ({ ...p, cameras: [...p.cameras, ...nuevas] }))
+      setIaResult({ resumen: data.resumen, equipos: data.equipos || [], n: nuevas.length })
+      setMode('select')
+    } catch (e) {
+      setIaErr(e.message || 'No se pudo conectar con la IA')
+    } finally { setIaLoading(false) }
+  }
+
   const camSel = sel?.kind === 'cam' ? proj.cameras.find((c) => c.id === sel.id) : null
   const devSelObj = sel?.kind === 'dev' ? proj.devices.find((d) => d.id === sel.id) : null
   const ppm = proj.pxPerMeter || 40
@@ -260,8 +292,26 @@ export default function App() {
                 <option value="observar">Observar</option>
                 <option value="detectar">Detectar (máximo alcance, menos cámaras)</option>
               </select>
-              <button className="btn on" style={{ width: '100%' }} onClick={generarAuto}>✨ Generar cámaras</button>
+              <button className="btn on" style={{ width: '100%' }} onClick={generarAuto}>✨ Generar (geométrico)</button>
               <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => { setAutoPts([]); setMode('select') }}>Cancelar</button>
+
+              <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
+                <h3 className="sec">🧠 Diseñar con IA (Claude)</h3>
+                <div className="muted">Describe el sitio y qué priorizar. La IA mira tu plano y propone las cámaras.</div>
+                <textarea className="in" rows={3} placeholder="Ej: bodega con 2 accesos; prioriza la entrada y la oficina de caja" value={iaBrief} onChange={(e) => setIaBrief(e.target.value)} />
+                {iaErr && <div className="err">{iaErr}</div>}
+                <button className="btn on" style={{ width: '100%' }} disabled={iaLoading} onClick={disenarIA}>{iaLoading ? '🧠 Diseñando…' : '🧠 Diseñar con IA'}</button>
+                <div className="muted" style={{ marginTop: 6 }}>La 1ª vez puede tardar ~1 min (el servidor de IA despierta).</div>
+              </div>
+            </div>
+          )}
+
+          {iaResult && (
+            <div className="props">
+              <h3 className="sec">🧠 Diseño IA · {iaResult.n} cámaras</h3>
+              <div className="muted" style={{ whiteSpace: 'pre-wrap' }}>{iaResult.resumen}</div>
+              {iaResult.equipos?.length > 0 && <div style={{ marginTop: 8 }}>{iaResult.equipos.map((e, i) => <div className="bom-row" key={i}><span>{e.descripcion}</span><b>×{e.cantidad}</b></div>)}</div>}
+              <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => setIaResult(null)}>OK</button>
             </div>
           )}
 

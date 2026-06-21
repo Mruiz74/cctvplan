@@ -36,6 +36,8 @@ h3.sec{font-size:14px;margin-bottom:8px}
 .cat-item b{font-size:13px}
 .cat-item span{font-size:11px;color:var(--muted)}
 .hint{background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.4);color:#7dd3fc;border-radius:9px;padding:8px 10px;font-size:12px;margin-bottom:10px}
+textarea.in{resize:vertical;font-family:inherit}
+.err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:9px;padding:8px 10px;font-size:12px;margin:8px 0}
 
 /* Propiedades */
 .props{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
