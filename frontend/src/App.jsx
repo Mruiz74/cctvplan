@@ -232,6 +232,7 @@ export default function App() {
     if (!d) return
     if (d.type === 'pan') setView((v) => ({ ...v, tx: d.tx + (e.clientX - d.sx), ty: d.ty + (e.clientY - d.sy) }))
     else if (d.type === 'cam') { const w = toWorld(e.clientX, e.clientY); setProj((p) => ({ ...p, cameras: p.cameras.map((c) => (c.id === d.id ? { ...c, x: w.x - d.ox, y: w.y - d.oy } : c)) })) }
+    else if (d.type === 'rot') { const w = toWorld(e.clientX, e.clientY); const ang = Math.round((((Math.atan2(w.y - d.cy, w.x - d.cx) * 180) / Math.PI) % 360 + 360) % 360); setProj((p) => ({ ...p, cameras: p.cameras.map((c) => (c.id === d.id ? { ...c, rot: ang } : c)) })) }
     else if (d.type === 'dev') { const w = toWorld(e.clientX, e.clientY); setProj((p) => ({ ...p, devices: p.devices.map((c) => (c.id === d.id ? { ...c, x: w.x - d.ox, y: w.y - d.oy } : c)) })) }
   }
   const onUp = () => { drag.current = null; window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
@@ -243,6 +244,14 @@ export default function App() {
     setSel({ kind, id: item.id })
     const w = toWorld(e.clientX, e.clientY)
     drag.current = { type: kind, id: item.id, ox: w.x - item.x, oy: w.y - item.y }
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp)
+  }
+
+  const startRot = (e, cam) => {
+    e.stopPropagation()
+    snapshot()
+    setSel({ kind: 'cam', id: cam.id })
+    drag.current = { type: 'rot', id: cam.id, cx: cam.x, cy: cam.y }
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp)
   }
 
@@ -585,7 +594,7 @@ export default function App() {
               {!proj.bg && <text x={20} y={40} fill="#5b6b86" fontSize={18}>Sube un plano para empezar →</text>}
 
               {proj.cameras.map((cam, i) => (
-                <CamView key={cam.id} cam={cam} idx={i + 1} cat={catById(cam.catId)} ppm={ppm} walls={proj.walls} sel={sel?.kind === 'cam' && sel.id === cam.id} onDown={(e) => startDrag(e, 'cam', cam)} />
+                <CamView key={cam.id} cam={cam} idx={i + 1} cat={catById(cam.catId)} ppm={ppm} walls={proj.walls} sel={sel?.kind === 'cam' && sel.id === cam.id} onDown={(e) => startDrag(e, 'cam', cam)} onRot={startRot} />
               ))}
 
               {proj.cables.map((c, i) => <line key={'k' + i} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="#22d3ee" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />)}
@@ -738,7 +747,7 @@ export function buildBom(proj) {
 }
 
 // ─── Vista de cámara con oclusión ───────────────────────────────────────────
-function CamView({ cam, idx, cat, ppm, walls, sel, onDown }) {
+function CamView({ cam, idx, cat, ppm, walls, sel, onDown, onRot }) {
   if (!cat) return null
   const cov = coberturaCamara(cat, cam.lenteIdx)
   const a1 = cam.rot - cov.hfov / 2, a2 = cam.rot + cov.hfov / 2
@@ -746,12 +755,19 @@ function CamView({ cam, idx, cat, ppm, walls, sel, onDown }) {
   const vis = visibilityPolygon(cam.x, cam.y, a1, a2, maxR, walls)
   const clipId = 'clip-' + cam.id
   const pts = vis.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const hlen = maxR ? Math.max(34, Math.min(maxR * 0.55, 110)) : 44
+  const rad = (cam.rot * Math.PI) / 180
+  const hx = cam.x + Math.cos(rad) * hlen, hy = cam.y + Math.sin(rad) * hlen
   return (
     <g onPointerDown={onDown} style={{ cursor: 'move' }}>
       <clipPath id={clipId}><polygon points={pts} /></clipPath>
       <g clipPath={`url(#${clipId})`}>
         {BANDAS.map((b) => <path key={b.key} d={sectorPath(cam.x, cam.y, cov.dori[b.key] * ppm, a1, a2)} fill={b.fill} stroke="none" />)}
       </g>
+      {sel && <>
+        <line x1={cam.x} y1={cam.y} x2={hx} y2={hy} stroke="#0ea5e9" strokeWidth={2} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+        <circle cx={hx} cy={hy} r={8} fill="#0ea5e9" stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ cursor: 'grab' }} onPointerDown={(e) => onRot(e, cam)} />
+      </>}
       <circle cx={cam.x} cy={cam.y} r={7} fill={sel ? '#0ea5e9' : '#111827'} stroke="#fff" strokeWidth={2} vectorEffect="non-scaling-stroke" />
       <text x={cam.x + 10} y={cam.y - 8} fill="#e6edf7" fontSize={13} stroke="#0b1220" strokeWidth={3} paintOrder="stroke" style={{ pointerEvents: 'none' }}>C{idx}</text>
     </g>
@@ -769,7 +785,7 @@ function CamProps({ cam, cat, onUpd, onDel }) {
       <select className="in" value={cam.lenteIdx} onChange={(e) => onUpd(cam.id, { lenteIdx: +e.target.value })}>
         {(cat.lentes || []).map((l, i) => (<option key={i} value={i}>{l.focal_mm}mm {l.hfov_publicado_deg ? `(${l.hfov_publicado_deg}°)` : '(est.)'}</option>))}
       </select>
-      <label className="lbl">Rotación: {cam.rot}°</label>
+      <label className="lbl">Rotación: {cam.rot}° <span className="muted" style={{ margin: 0 }}>· arrastra el punto azul 🔵 en el plano para apuntar</span></label>
       <input className="range" type="range" min={0} max={359} value={cam.rot} onChange={(e) => onUpd(cam.id, { rot: +e.target.value })} />
       <div className="dori">
         <div><b>Cobertura DORI</b> (HFOV {cov.hfov}°{cov.estimado ? ' est.' : ''})</div>
