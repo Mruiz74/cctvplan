@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { PORT, FRONTEND_URL } = require('./config');
 const { autoDiseno, detectarMuros } = require('./diseno');
+const { satelite } = require('./satelite');
 
 const app = express();
 const allow = FRONTEND_URL.split(',').map((s) => s.trim()).filter(Boolean);
@@ -38,6 +39,18 @@ app.post('/api/muros', async (req, res) => {
     if (e.status === 401) return res.status(401).json({ error: 'API key de Claude inválida.' });
     console.error('muros:', e.status || '', e.message || e);
     res.status(500).json({ error: 'No se pudieron detectar las murallas.' });
+  }
+});
+
+app.post('/api/satelite', async (req, res) => {
+  const { direccion, lat, lng, metros } = req.body || {};
+  if (!direccion && !(lat && lng)) return res.status(400).json({ error: 'Ingresa una dirección.' });
+  try {
+    res.json(await satelite({ direccion, lat, lng, metros }));
+  } catch (e) {
+    if (e.code === 'NOT_FOUND') return res.status(404).json({ error: 'No encontré esa dirección. Prueba con más detalle (calle, número, comuna, país).' });
+    console.error('satelite:', e.message || e);
+    res.status(500).json({ error: 'No se pudo obtener la imagen satelital. Reintenta.' });
   }
 });
 

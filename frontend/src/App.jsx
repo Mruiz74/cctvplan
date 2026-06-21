@@ -69,6 +69,7 @@ export default function App() {
   const [iaErr, setIaErr] = useState('')
   const [murosLoading, setMurosLoading] = useState(false)
   const [dxf, setDxf] = useState(null) // { data, sel:Set } — selector de capas DXF
+  const [sat, setSat] = useState(null) // { dir, metros, loading, err } — modal satélite
   const svgRef = useRef(null)
   const drag = useRef(null)
   const projRef = useRef(proj)
@@ -301,6 +302,22 @@ export default function App() {
     } catch (e) { alert(e.message || 'No se pudo detectar las murallas') } finally { setMurosLoading(false) }
   }
 
+  // Trae una imagen satelital del sitio por dirección, ya calibrada a escala real.
+  const buscarSatelite = async () => {
+    const dir = (sat.dir || '').trim()
+    if (!dir) { setSat((s) => ({ ...s, err: 'Escribe una dirección.' })); return }
+    setSat((s) => ({ ...s, loading: true, err: '' }))
+    try {
+      const r = await fetch(API_IA + '/api/satelite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dir, metros: sat.metros }) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'No se pudo obtener la imagen')
+      snapshot()
+      setProj((p) => ({ ...p, bg: { url: data.imagen, w: data.w, h: data.h }, pxPerMeter: data.pxPerMeter }))
+      fitView({ w: data.w, h: data.h })
+      setSat(null)
+    } catch (e) { setSat((s) => ({ ...s, loading: false, err: e.message || 'Error al traer la imagen' })) }
+  }
+
   // Auto-diseño con IA (Claude). Manda el plano + encargo al backend y coloca lo propuesto.
   const disenarIA = async () => {
     if (!proj.bg) { alert('Sube un plano primero (📐).'); return }
@@ -339,6 +356,7 @@ export default function App() {
         <span className="logo">🎥 CCTVPLAN</span>
         <input className="proj-name" value={proj.nombre} onChange={(e) => set({ nombre: e.target.value })} />
         <label className="btn"><input type="file" accept="image/*,application/pdf,.dxf" style={{ display: 'none' }} onChange={(e) => subirPlano(e.target.files[0])} />📐 Plano</label>
+        <button className="btn" onClick={() => setSat({ dir: '', metros: 120, loading: false, err: '' })} title="Traer imagen satelital por dirección (exteriores)">🛰️ Satélite</button>
         <button className={'btn ' + (mode === 'scale' ? 'on' : '')} onClick={() => { setMode('scale'); setScalePts([]) }}>📏 Escala</button>
         <button className={'btn ' + (mode === 'wall' ? 'on' : '')} onClick={() => { setMode(mode === 'wall' ? 'select' : 'wall'); setLineStart(null) }}>🧱 Muro</button>
         <button className={'btn ' + (mode === 'rect' ? 'on' : '')} onClick={() => { setMode(mode === 'rect' ? 'select' : 'rect'); setLineStart(null) }} title="Dibujar una sala (rectángulo) en 2 clics">▭ Sala</button>
@@ -478,6 +496,24 @@ export default function App() {
             </div>
             <button className="btn on" style={{ width: '100%' }} onClick={importarCapas}>Importar {dxf.sel.size} capa(s)</button>
             <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setDxf(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {sat && (
+        <div className="modal-bg" onClick={() => !sat.loading && setSat(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="sec">🛰️ Imagen satelital por dirección</h3>
+            <div className="muted">Escribe la dirección del sitio. Traigo la foto aérea <b>ya a escala real</b> — lista para diseñar exteriores.</div>
+            <input className="in" placeholder="Ej: Av. Apoquindo 6410, Las Condes, Chile" value={sat.dir}
+              onChange={(e) => setSat((s) => ({ ...s, dir: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') buscarSatelite() }} autoFocus />
+            <label className="lbl">Área a cubrir: {sat.metros} m de lado</label>
+            <input className="range" type="range" min={40} max={400} step={10} value={sat.metros}
+              onChange={(e) => setSat((s) => ({ ...s, metros: +e.target.value }))} />
+            {sat.err && <div className="err">{sat.err}</div>}
+            <button className="btn on" style={{ width: '100%', marginTop: 10 }} disabled={sat.loading} onClick={buscarSatelite}>{sat.loading ? 'Buscando…' : 'Traer imagen'}</button>
+            <button className="btn" style={{ width: '100%', marginTop: 6 }} disabled={sat.loading} onClick={() => setSat(null)}>Cancelar</button>
           </div>
         </div>
       )}
