@@ -30,8 +30,8 @@ app.post('/api/autodiseno', async (req, res) => {
 
 app.post('/api/muros', async (req, res) => {
   try {
-    const muros = await detectarMuros({ imagenDataUrl: (req.body || {}).imagenDataUrl });
-    res.json({ muros });
+    const recintos = await detectarMuros({ imagenDataUrl: (req.body || {}).imagenDataUrl });
+    res.json({ recintos });
   } catch (e) {
     if (e.code === 'NO_API_KEY') return res.status(503).json({ error: 'La IA no está configurada (falta ANTHROPIC_API_KEY).' });
     if (e.code === 'NO_IMG') return res.status(400).json({ error: 'Sube un plano primero.' });

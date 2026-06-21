@@ -138,23 +138,26 @@ async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, ca
 }
 
 // ─── Detección de murallas con IA ────────────────────────────────────────────
-const TOOL_MUROS = {
-  name: 'reportar_muros',
-  description: 'Lista los segmentos de muralla/pared detectados en el plano.',
+const TOOL_RECINTOS = {
+  name: 'reportar_recintos',
+  description: 'Lista los recintos (salas, oficinas, pasillos, bodegas) del plano como cajas rectangulares.',
   input_schema: {
     type: 'object',
     properties: {
-      muros: {
+      recintos: {
         type: 'array',
-        description: 'Cada muro es un segmento recto en coordenadas normalizadas 0..1.',
+        description: 'Cada recinto es una caja en coordenadas normalizadas 0..1 (x,y = esquina sup-izq).',
         items: {
           type: 'object',
-          properties: { x1: { type: 'number' }, y1: { type: 'number' }, x2: { type: 'number' }, y2: { type: 'number' } },
-          required: ['x1', 'y1', 'x2', 'y2'],
+          properties: {
+            nombre: { type: 'string' },
+            x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' },
+          },
+          required: ['x', 'y', 'w', 'h'],
         },
       },
     },
-    required: ['muros'],
+    required: ['recintos'],
   },
 };
 
@@ -167,12 +170,12 @@ async function detectarMuros({ imagenDataUrl }) {
   const cuerpo = {
     model: ANTHROPIC_MODEL,
     max_tokens: 4096,
-    system: `Analizas planos arquitectónicos. Identifica las MURALLAS/paredes: el perímetro del edificio y las divisiones internas principales. Devuelve cada muro como un segmento recto (x1,y1,x2,y2) en coordenadas normalizadas 0..1 (x: izq→der, y: arriba→abajo). NO incluyas cotas/medidas, texto, muebles ni símbolos; deja vanos donde hay puertas. Une los tramos en líneas rectas. Responde SIEMPRE con la herramienta reportar_muros.`,
-    tools: [TOOL_MUROS],
-    tool_choice: { type: 'tool', name: 'reportar_muros' },
+    system: `Analizas planos arquitectónicos. Identifica los RECINTOS reales delimitados por murallas (salas, oficinas, pasillos, bodegas, baños). Para cada uno entrega su CAJA rectangular (x,y = esquina sup-izquierda, w,h) en coordenadas normalizadas 0..1 (x: izq→der, y: arriba→abajo), ajustada a las paredes del recinto. NO incluyas el exterior del edificio, ni el cuadro de título/notas/leyenda, ni muebles ni cotas. Responde SIEMPRE con la herramienta reportar_recintos.`,
+    tools: [TOOL_RECINTOS],
+    tool_choice: { type: 'tool', name: 'reportar_recintos' },
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') } },
-      { type: 'text', text: 'Detecta las murallas de este plano.' },
+      { type: 'text', text: 'Detecta los recintos (salas/oficinas/pasillos) de este plano como cajas.' },
     ] }],
   };
   let ultimo;
@@ -181,7 +184,7 @@ async function detectarMuros({ imagenDataUrl }) {
       const msg = await client.messages.create(cuerpo);
       const tu = msg.content.find((b) => b.type === 'tool_use');
       if (!tu || !tu.input) throw new Error('Sin resultado');
-      return Array.isArray(tu.input.muros) ? tu.input.muros : [];
+      return Array.isArray(tu.input.recintos) ? tu.input.recintos : [];
     } catch (e) { ultimo = e; if (!esConexion(e) || i === 3) throw e; await new Promise((r) => setTimeout(r, 1500 * i)); }
   }
   throw ultimo;

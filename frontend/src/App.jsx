@@ -250,10 +250,20 @@ export default function App() {
       const r = await fetch(API_IA + '/api/muros', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imagenDataUrl: proj.bg.url }) })
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Error del servidor de IA')
-      const nuevos = (data.muros || []).map((m) => ({ x1: (m.x1 || 0) * proj.bg.w, y1: (m.y1 || 0) * proj.bg.h, x2: (m.x2 || 0) * proj.bg.w, y2: (m.y2 || 0) * proj.bg.h }))
-        .filter((m) => Math.hypot(m.x2 - m.x1, m.y2 - m.y1) > 3)
+      const nuevos = []
+      for (const z of (data.recintos || [])) {
+        const x = (z.x || 0) * proj.bg.w, y = (z.y || 0) * proj.bg.h
+        const w = (z.w || 0) * proj.bg.w, h = (z.h || 0) * proj.bg.h
+        if (w < 6 || h < 6) continue
+        nuevos.push(
+          { x1: x, y1: y, x2: x + w, y2: y },
+          { x1: x + w, y1: y, x2: x + w, y2: y + h },
+          { x1: x + w, y1: y + h, x2: x, y2: y + h },
+          { x1: x, y1: y + h, x2: x, y2: y },
+        )
+      }
       if (nuevos.length) { snapshot(); set({ walls: [...proj.walls, ...nuevos] }) }
-      else alert('La IA no detectó murallas claras. Prueba con un plano más nítido o dibújalas a mano.')
+      else alert('La IA no detectó recintos claros. Prueba con un plano más nítido o dibuja los muros a mano.')
     } catch (e) { alert(e.message || 'No se pudo detectar las murallas') } finally { setMurosLoading(false) }
   }
 
