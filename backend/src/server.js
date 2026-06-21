@@ -51,6 +51,7 @@ app.post('/api/satelite', async (req, res) => {
     res.json(await satelite({ direccion, lat, lng, metros }));
   } catch (e) {
     if (e.code === 'NOT_FOUND') return res.status(404).json({ error: 'No encontré esa dirección. Prueba con más detalle (calle, número, comuna, país).' });
+    if (e.code === 'GKEY') { console.error('satelite google:', e.message || e); return res.status(502).json({ error: 'La API de Google Maps rechazó la solicitud (revisa la API key, que tenga Static Maps + Geocoding habilitadas y facturación).' }); }
     console.error('satelite:', e.message || e);
     res.status(500).json({ error: 'No se pudo obtener la imagen satelital. Reintenta.' });
   }

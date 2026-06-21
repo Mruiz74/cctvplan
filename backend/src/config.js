@@ -12,4 +12,6 @@ module.exports = {
   DATABASE_URL: process.env.DATABASE_URL || '',
   JWT_SECRET: process.env.JWT_SECRET || 'cctvplan-dev-secret-cambiar',
   JWT_EXPIRES: process.env.JWT_EXPIRES || '30d',
+  // Imagen satelital: si está, usa Google Static Maps; si no, Esri (gratis).
+  GOOGLE_MAPS_KEY: process.env.GOOGLE_MAPS_KEY || '',
 };

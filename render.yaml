@@ -30,3 +30,5 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: GOOGLE_MAPS_KEY
+        sync: false
