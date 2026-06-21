@@ -68,6 +68,7 @@ export default function App() {
   const [iaResult, setIaResult] = useState(null)
   const [iaErr, setIaErr] = useState('')
   const [murosLoading, setMurosLoading] = useState(false)
+  const [dxf, setDxf] = useState(null) // { data, sel:Set } — selector de capas DXF
   const svgRef = useRef(null)
   const drag = useRef(null)
   const projRef = useRef(proj)
@@ -135,11 +136,12 @@ export default function App() {
     if (/\.dxf$/i.test(file.name)) {
       try {
         const txt = await file.text()
-        const { importarDXF } = await import('./lib/dxf') // se carga solo al usar DXF
-        const res = importarDXF(txt)
-        snapshot()
-        setProj((p) => ({ ...p, bg: { url: '', w: res.w, h: res.h }, walls: res.walls, pxPerMeter: res.pxPerMeter || p.pxPerMeter }))
+        const { parseDXF } = await import('./lib/dxf') // se carga solo al usar DXF
+        const res = parseDXF(txt)
+        const pre = res.layers.filter((l) => /muro|wall|constru|cierro|tabique|perimetr|edific/i.test(l.name)).map((l) => l.name)
+        setProj((p) => ({ ...p, bg: { url: '', w: res.w, h: res.h }, pxPerMeter: res.pxPerMeter || p.pxPerMeter }))
         fitView({ w: res.w, h: res.h })
+        setDxf({ data: res, sel: new Set(pre) })
       } catch (e) { console.error(e); alert(e.message || 'No se pudo leer el DXF') }
       return
     }
@@ -239,6 +241,13 @@ export default function App() {
     setSel(null)
   }
   const deshacerLinea = (arr) => setProj((p) => ({ ...p, [arr]: p[arr].slice(0, -1) }))
+
+  const toggleCapa = (name) => setDxf((d) => { const s = new Set(d.sel); s.has(name) ? s.delete(name) : s.add(name); return { ...d, sel: s } })
+  const importarCapas = () => {
+    if (!dxf) return
+    const muros = dxf.data.segs.filter((s) => dxf.sel.has(s.layer)).map(({ x1, y1, x2, y2 }) => ({ x1, y1, x2, y2 }))
+    snapshot(); setProj((p) => ({ ...p, walls: muros })); setDxf(null)
+  }
 
   // Auto-diseño v1 (geométrico): coloca cámaras a lo largo de la línea dibujada,
   // espaciadas según el alcance del nivel DORI objetivo, mirando perpendicular.
@@ -453,6 +462,25 @@ export default function App() {
           <div className="legend">{BANDAS.slice().reverse().map((b) => (<span key={b.key}><i style={{ background: b.fill }} />{b.label}</span>))}</div>
         </main>
       </div>
+
+      {dxf && (
+        <div className="modal-bg" onClick={() => setDxf(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="sec">Importar capas del DXF como muros</h3>
+            <div className="muted">Marca las capas que son murallas / construcción / cierre perimetral. {dxf.data.pxPerMeter ? '✓ Escala detectada del DXF.' : 'Sin unidades: calibra con 📏 luego.'}</div>
+            <div className="layer-list">
+              {dxf.data.layers.map((l) => (
+                <label className="layer-row" key={l.name}>
+                  <input type="checkbox" checked={dxf.sel.has(l.name)} onChange={() => toggleCapa(l.name)} />
+                  <span className="ln">{l.name}</span><span className="lc">{l.count}</span>
+                </label>
+              ))}
+            </div>
+            <button className="btn on" style={{ width: '100%' }} onClick={importarCapas}>Importar {dxf.sel.size} capa(s)</button>
+            <button className="btn" style={{ width: '100%', marginTop: 6 }} onClick={() => setDxf(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
