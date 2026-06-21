@@ -64,10 +64,13 @@ CATÁLOGO de cámaras disponibles. Diseña la ubicación de cámaras cumpliendo 
 - Usa SOLO modelos del catálogo (modelo_id exacto). Elige el tipo adecuado (domo interior,
   bullet exterior, PTZ para grandes áreas) y la lente apropiada (lente_idx).
 - Coordenadas normalizadas 0..1 respecto al plano. Orientación: 0=este, 90=sur, 180=oeste, 270=norte.
+- REGLA DE MARCA (buenas prácticas): un sistema CCTV usa UNA SOLA marca, porque cada marca
+  implica su propio grabador/VMS y su esquema de licencias, y mezclar pierde las analíticas/IA
+  por compatibilidad. NO mezcles marcas salvo que se permita explícitamente.
 Responde SIEMPRE llamando a la herramienta proponer_diseno. Sé práctico y no sobre-dimensiones.`;
 }
 
-async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo }) {
+async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, catalogo, marcaPreferida }) {
   const client = getClient();
   const content = [];
 
@@ -85,9 +88,19 @@ async function autoDiseno({ imagenDataUrl, brief, pxPerMeter, planoW, planoH, ca
     lentes: (c.lentes || []).map((l, i) => ({ idx: i, focal_mm: l.focal_mm, hfov: l.hfov_publicado_deg })),
   }));
 
+  let marcaTxt;
+  if (marcaPreferida && marcaPreferida !== 'auto' && marcaPreferida !== 'mezclar') {
+    marcaTxt = `Usa EXCLUSIVAMENTE cámaras de la marca "${marcaPreferida}".`;
+  } else if (marcaPreferida === 'mezclar') {
+    marcaTxt = 'Se permite mezclar marcas solo si lo justificas claramente.';
+  } else {
+    marcaTxt = 'Usa UNA SOLA marca para todo el sistema (elige la más adecuada del catálogo). NO mezcles marcas.';
+  }
+
   content.push({
     type: 'text',
     text: `ENCARGO: ${brief || 'Diseña una cobertura CCTV completa y razonable para este plano.'}\n` +
+      `MARCA: ${marcaTxt}\n` +
       `ESCALA: ${pxPerMeter ? pxPerMeter.toFixed(1) + ' px/m' : 'no calibrada'}. PLANO: ${planoW}x${planoH}px.\n` +
       `CATÁLOGO DISPONIBLE (usa estos modelo_id):\n${JSON.stringify(cat)}`,
   });

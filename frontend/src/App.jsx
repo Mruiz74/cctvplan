@@ -39,6 +39,7 @@ export default function App() {
   const [autoPts, setAutoPts] = useState([])
   const [autoNivel, setAutoNivel] = useState('reconocer')
   const [iaBrief, setIaBrief] = useState('')
+  const [iaMarca, setIaMarca] = useState('auto')
   const [iaLoading, setIaLoading] = useState(false)
   const [iaResult, setIaResult] = useState(null)
   const [iaErr, setIaErr] = useState('')
@@ -210,7 +211,8 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imagenDataUrl: proj.bg.url, brief: iaBrief, pxPerMeter: proj.pxPerMeter,
-          planoW: proj.bg.w, planoH: proj.bg.h, catalogo: CAMS.filter((c) => !c._es_serie),
+          planoW: proj.bg.w, planoH: proj.bg.h, marcaPreferida: iaMarca,
+          catalogo: CAMS.filter((c) => !c._es_serie),
         }),
       })
       const data = await r.json()
@@ -298,6 +300,12 @@ export default function App() {
               <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
                 <h3 className="sec">🧠 Diseñar con IA (Claude)</h3>
                 <div className="muted">Describe el sitio y qué priorizar. La IA mira tu plano y propone las cámaras.</div>
+                <label className="lbl">Marca del sistema</label>
+                <select className="in" value={iaMarca} onChange={(e) => setIaMarca(e.target.value)}>
+                  <option value="auto">Una sola marca (la IA elige la mejor)</option>
+                  {MARCAS.map((m) => <option key={m} value={m}>Solo {m}</option>)}
+                  <option value="mezclar">Permitir mezclar marcas</option>
+                </select>
                 <textarea className="in" rows={3} placeholder="Ej: bodega con 2 accesos; prioriza la entrada y la oficina de caja" value={iaBrief} onChange={(e) => setIaBrief(e.target.value)} />
                 {iaErr && <div className="err">{iaErr}</div>}
                 <button className="btn on" style={{ width: '100%' }} disabled={iaLoading} onClick={disenarIA}>{iaLoading ? '🧠 Diseñando…' : '🧠 Diseñar con IA'}</button>
